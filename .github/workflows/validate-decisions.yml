@@ -1,0 +1,45 @@
+name: Validate decision records
+
+# Reusable workflow — called by a service repo's own workflow as:
+#
+#   jobs:
+#     decisions:
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/validate-decisions.yml@v1
+#
+# See platform-handbook/docs/decisions/README.md for the rules this enforces.
+# The validator itself lives in platform-handbook, not here — this workflow
+# fetches the current script from platform-handbook@main at run time and
+# runs it against the calling repo's own docs/decisions/, so the script
+# keeps one home instead of a copy drifting in every consumer.
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the validator from platform-handbook
+        uses: actions/checkout@v4
+        with:
+          repository: aeroflow-air/platform-handbook
+          ref: main
+          path: .platform-handbook-validator
+          sparse-checkout: |
+            scripts/validate-decisions.py
+          sparse-checkout-cone-mode: false
+
+      - name: Static checks
+        run: python3 .platform-handbook-validator/scripts/validate-decisions.py --repo-root "$GITHUB_WORKSPACE"
+
+      - name: Diff checks against base branch
+        if: github.event_name == 'pull_request'
+        run: python3 .platform-handbook-validator/scripts/validate-decisions.py --repo-root "$GITHUB_WORKSPACE" --base "origin/${{ github.base_ref }}"
