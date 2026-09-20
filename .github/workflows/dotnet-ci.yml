@@ -1,0 +1,69 @@
+name: .NET CI
+
+# Reusable workflow — called by a service repo as:
+#
+#   jobs:
+#     build-and-test:
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/dotnet-ci.yml@v0.1.0
+#       with:
+#         solution: Your.Service.sln
+#       permissions:
+#         contents: read
+#
+# Thin restore → build → test. No scanner theatre.
+# validate-decisions.yml is separate and untouched.
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: .NET SDK version for actions/setup-dotnet
+        type: string
+        required: false
+        default: "8.0.x"
+      solution:
+        description: Path to the .sln (or .csproj). Empty runs at the repo root.
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Restore
+        run: |
+          if [ -n "${{ inputs.solution }}" ]; then
+            dotnet restore "${{ inputs.solution }}"
+          else
+            dotnet restore
+          fi
+
+      - name: Build
+        run: |
+          if [ -n "${{ inputs.solution }}" ]; then
+            dotnet build "${{ inputs.solution }}" --configuration Release --no-restore
+          else
+            dotnet build --configuration Release --no-restore
+          fi
+
+      - name: Test
+        run: |
+          if [ -n "${{ inputs.solution }}" ]; then
+            dotnet test "${{ inputs.solution }}" --configuration Release --no-build --verbosity normal
+          else
+            dotnet test --configuration Release --no-build --verbosity normal
+          fi
