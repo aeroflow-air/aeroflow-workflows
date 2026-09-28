@@ -1,0 +1,40 @@
+name: Self-test
+
+# This repo's own CI. Lints every workflow here and runs dotnet-ci.yml
+# against a tiny sample, so a broken reusable workflow fails on its PR
+# instead of in a caller after the next tag.
+#
+# Check-run names (required on main): `lint` and `dotnet-ci / build-and-test`.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Official download script and binary, both pinned to the same release.
+      # ubuntu-latest ships shellcheck, so run: blocks are checked too.
+      - name: Download actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+
+      - name: Run actionlint
+        run: ./actionlint -color .github/workflows/*.yml
+
+  dotnet-ci:
+    uses: ./.github/workflows/dotnet-ci.yml
+    with:
+      solution: tests/sample/Sample.sln
+    permissions:
+      contents: read

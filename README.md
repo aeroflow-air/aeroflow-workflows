@@ -44,3 +44,7 @@ jobs:
   decisions:
     uses: aeroflow-air/aeroflow-workflows/.github/workflows/validate-decisions.yml@v1
 ```
+
+## Self-test
+
+`.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. It lints all workflows here with actionlint (`lint`) and calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Both checks are required on `main`, so a change to a reusable workflow is proven here before it is tagged.
