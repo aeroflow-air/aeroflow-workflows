@@ -1,10 +1,12 @@
 name: Self-test
 
-# This repo's own CI. Lints every workflow here and runs dotnet-ci.yml
-# against a tiny sample, so a broken reusable workflow fails on its PR
-# instead of in a caller after the next tag.
+# This repo's own CI. Lints every workflow here, validates the workload
+# manifest schema, and runs dotnet-ci.yml against a tiny sample, so a
+# broken reusable workflow fails on its PR instead of in a caller after
+# the next tag.
 #
 # Check-run names (required on main): `lint` and `dotnet-ci / build-and-test`.
+# The workload schema check is a step in `lint`, not a separate workflow.
 
 on:
   pull_request:
@@ -31,6 +33,13 @@ jobs:
 
       - name: Run actionlint
         run: ./actionlint -color .github/workflows/*.yml
+
+      # Same required check as actionlint. No second workflow.
+      - name: Validate workload schema
+        run: |
+          python3 -m venv .schema-venv
+          .schema-venv/bin/pip install --disable-pip-version-check 'jsonschema==4.23.0' 'PyYAML==6.0.2'
+          .schema-venv/bin/python tests/workload-schema/validate.py
 
   dotnet-ci:
     uses: ./.github/workflows/dotnet-ci.yml

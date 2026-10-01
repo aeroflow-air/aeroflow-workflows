@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aeroflow-air/aeroflow-workflows/schemas/workload.schema.json",
+  "title": "AeroFlow workload manifest",
+  "description": "Request for paved-road infrastructure (ADR-0009). Not a deployment. Unknown keys are rejected, including any raw resource, Bicep or ARM block.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workload", "repo", "dataClass", "capabilities"],
+  "properties": {
+    "workload": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataClass": {
+      "type": "string",
+      "enum": ["public", "internal", "confidential"]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["http", "identity", "store", "queue"]
+      },
+      "uniqueItems": true
+    },
+    "modules": {
+      "type": "object",
+      "description": "Optional exact br/platform pins in Bicep colon form (ADR-0009). Not a capability-to-module map. The only key ADR-0009 names is hosting.",
+      "additionalProperties": false,
+      "required": ["hosting"],
+      "minProperties": 1,
+      "properties": {
+        "hosting": {
+          "type": "string",
+          "pattern": "^br/platform:[a-z][a-z0-9-]*:[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Bicep registry pin. ADR-0009's example writes br/platform:container-app-service:x.y.z; x.y.z is a placeholder, so this pattern requires a numeric major.minor.patch. The module name is not fixed."
+        }
+      }
+    }
+  }
+}

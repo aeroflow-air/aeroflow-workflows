@@ -1,0 +1,8 @@
+# Synthetic fixture. Not a copy of a service manifest.
+# Exercises modules.hosting and the full capability enum from ADR-0009.
+workload: flight-status
+repo: svc-flight-status
+dataClass: confidential
+capabilities: [http, identity, store, queue]
+modules:
+  hosting: br/platform:container-app-service:1.2.3
