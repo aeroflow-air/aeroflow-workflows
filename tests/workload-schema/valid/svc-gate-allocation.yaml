@@ -1,0 +1,11 @@
+# Paved-road infrastructure request (ADR-0009). This is not a deployment.
+# The workload schema is not published yet. It will live in aeroflow-workflows,
+# versioned with that repository's tags.
+#
+# Requests one container app and nothing else. The hosting module
+# (container-app-service, ADR-0007) is not published, so this file does not
+# pin br/platform.
+workload: svc-gate-allocation
+repo: svc-gate-allocation
+dataClass: internal
+capabilities: [http]

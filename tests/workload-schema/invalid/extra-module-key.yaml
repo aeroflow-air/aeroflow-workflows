@@ -1,0 +1,7 @@
+workload: flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http]
+modules:
+  hosting: br/platform:container-app-service:1.0.0
+  network: br/platform:some-network:1.0.0

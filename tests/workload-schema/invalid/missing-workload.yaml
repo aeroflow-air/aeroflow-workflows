@@ -1,0 +1,3 @@
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http]

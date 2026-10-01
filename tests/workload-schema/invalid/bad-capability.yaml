@@ -1,0 +1,4 @@
+workload: svc-flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [container-app]
