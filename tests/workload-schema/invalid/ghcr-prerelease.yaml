@@ -1,0 +1,6 @@
+workload: flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http]
+modules:
+  hosting: br:ghcr.io/aeroflow-air/container-app-service:0.1.0-preview

@@ -1,0 +1,6 @@
+workload: flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http]
+modules:
+  hosting: br:ghcr.io/someone-else/container-app-service:0.1.0

@@ -1,0 +1,8 @@
+# Synthetic fixture. Not a copy of a service manifest.
+# Same registry path, different module name, so the name is not fixed.
+workload: flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http]
+modules:
+  hosting: br:ghcr.io/aeroflow-air/another-hosting-module:2.0.1
