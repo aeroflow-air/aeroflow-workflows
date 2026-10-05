@@ -4,14 +4,12 @@ on:
   push:
     paths:
       - "scripts/label_ai_assistance.py"
-      - "scripts/fetch_cursor_ai_commits.py"
       - "tests/label-ai-assistance/**"
       - ".github/workflows/label-ai-assistance.yml"
       - ".github/workflows/label-ai-assistance-self-test.yml"
   pull_request:
     paths:
       - "scripts/label_ai_assistance.py"
-      - "scripts/fetch_cursor_ai_commits.py"
       - "tests/label-ai-assistance/**"
       - ".github/workflows/label-ai-assistance.yml"
       - ".github/workflows/label-ai-assistance-self-test.yml"

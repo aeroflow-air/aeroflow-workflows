@@ -58,14 +58,16 @@ jobs:
 
 Phase B automation: applies `ai-authored` / `ai-reviewed` / `ai-declaration:none` on pull requests.
 
-**Joinable tool signals (preferred over trailers):**
+**Zero-cost signals only** (no paid/Enterprise vendor APIs):
 
-- [Cursor AI Code Tracking](https://cursor.com/docs/account/teams/ai-code-tracking-api) — per-commit SHA metrics (Enterprise, alpha). Optional secret `CURSOR_API_KEY`.
-- Copilot cloud agent — detected via PR author login on GitHub (no metrics API).
+1. Manual `/ai-label` slash commands (locks with `ai-label:manual`)
+2. PR body template markers / checkboxes
+3. Copilot cloud-agent PR author login (GitHub-native)
+4. `Ai-Assisted:` commit trailers (fallback)
+5. AI `Co-Authored-By` allow-list (fallback)
+6. Reminder when ready for review and undeclared (non-blocking)
 
-**Not used for labelling** (no PR/commit attribution): Copilot Usage Metrics API, Claude Code Analytics API, Windsurf Analytics. Keep them for org dashboards only (ADR-0011).
-
-**Fallbacks:** `Ai-Assisted:` commit trailers, AI `Co-Authored-By` allow-list, PR template checkboxes (highest after manual lock).
+Aggregate vendor metrics (Copilot Usage Metrics, Claude Code Analytics, Windsurf, Cursor AI Code Tracking) are **out of scope** for labelling — team dashboards only if already licensed (ADR-0011).
 
 ```yaml
 name: AI assistance labels
@@ -86,18 +88,10 @@ jobs:
     uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@main
     with:
       workflows_ref: main   # keep in sync with the uses: pin above
-    secrets:
-      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}  # optional; placeholder skips Cursor band
     permissions:
       contents: read
       pull-requests: write
 ```
 
-Org/repo secrets (placeholders — do not commit real values):
-
-| Secret | Required | Purpose |
-|--------|----------|---------|
-| `CURSOR_API_KEY` | No | Cursor Enterprise API key (`admin:*`) for AI Code Tracking. Use `REPLACE_WITH_CURSOR_ENTERPRISE_API_KEY` until issued. |
-
-Permissions on the job: `contents: read`, `pull-requests: write` only.
+No secrets required. Permissions on the job: `contents: read`, `pull-requests: write` only.
 
