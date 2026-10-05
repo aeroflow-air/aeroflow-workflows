@@ -8,6 +8,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 |----------|---------|-------------|
 | `validate-decisions.yml` | ADR shape, lifecycle, immutability | `@v1` (tag pending) |
 | `dotnet-ci.yml` | .NET restore → build → test | `@v0.1.0` |
+| `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
 
 ## .NET CI
 
@@ -52,3 +53,45 @@ jobs:
 ## Self-test
 
 `.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. The `lint` job lints all workflows here with actionlint and validates the workload schema. The `dotnet-ci` job calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Both checks are required on `main`, so a change to a reusable workflow is proven here before it is tagged.
+
+## AI assistance labels (ADR-0012)
+
+Phase B automation: applies `ai-authored` / `ai-reviewed` / `ai-declaration:none` on pull requests.
+
+**Zero-cost signals only** (no paid/Enterprise vendor APIs):
+
+1. Manual `/ai-label` slash commands (locks with `ai-label:manual`)
+2. PR body template markers / checkboxes
+3. Copilot cloud-agent PR author login (GitHub-native)
+4. `Ai-Assisted:` commit trailers (fallback)
+5. AI `Co-Authored-By` allow-list (fallback)
+6. Reminder when ready for review and undeclared (non-blocking)
+
+Aggregate vendor metrics (Copilot Usage Metrics, Claude Code Analytics, Windsurf, Cursor AI Code Tracking) are **out of scope** for labelling — team dashboards only if already licensed (ADR-0011).
+
+```yaml
+name: AI assistance labels
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    if: github.event_name == 'pull_request' || github.event.issue.pull_request
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@main
+    with:
+      workflows_ref: main   # keep in sync with the uses: pin above
+    permissions:
+      contents: read
+      pull-requests: write
+```
+
+No secrets required. Permissions on the job: `contents: read`, `pull-requests: write` only.
+
