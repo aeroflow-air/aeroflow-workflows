@@ -14,7 +14,7 @@ The root object has `additionalProperties: false`. The properties are:
 - `repo` (string, required)
 - `dataClass` (string, required), enum `public`, `internal`, `confidential`
 - `capabilities` (array, required). Each item is one of `http`, `identity`, `store`, `queue`. Items must be unique.
-- `modules` (object, optional). When present it requires `hosting`, a string matching `br/platform:<module>:<major>.<minor>.<patch>`. No other key is allowed.
+- `modules` (object, optional). When present it requires `hosting`, a string matching either `br/platform:<module>:<major>.<minor>.<patch>` or `br:ghcr.io/aeroflow-air/<module>:<major>.<minor>.<patch>`. The module name is a single segment (`[a-z][a-z0-9-]*`) and is not fixed to `container-app-service`. No other key is allowed.
 
 ADR-0009's example is:
 
@@ -27,7 +27,7 @@ modules:
   hosting: br/platform:container-app-service:x.y.z
 ```
 
-`x.y.z` in that example is a placeholder. The schema requires a numeric `major.minor.patch`. It does not fix the module name to `container-app-service`.
+`x.y.z` in that example is a placeholder. The schema requires a numeric `major.minor.patch` with no leading `v` and no pre-release. It does not fix the module name to `container-app-service`. The same version rule applies to a GitHub Container Registry pin, for example `br:ghcr.io/aeroflow-air/container-app-service:0.1.0`. Only the `ghcr.io/aeroflow-air/` registry path is accepted alongside the existing `br/platform` alias.
 
 ## What it refuses
 
@@ -35,7 +35,7 @@ An unknown root key fails. That is how a raw resource block, an arbitrary Bicep 
 
 A `dataClass` outside `public`, `internal` and `confidential` fails. A capability outside `http`, `identity`, `store` and `queue` fails. `container-app` is not a capability. ADR-0009 names `container-app-service` as the hosting module, not as a capability key. The capability written in the current manifests is `http`.
 
-A `modules.hosting` value that is not a `br/platform` pin in that colon form fails. Any `modules` key other than `hosting` fails. `modules` with no `hosting` pin fails.
+A `modules.hosting` value that is neither a `br/platform` pin nor a `br:ghcr.io/aeroflow-air/<module>:<major>.<minor>.<patch>` pin fails. A pin to any other registry fails, including `br:mcr.microsoft.com/...` and `br:ghcr.io/someone-else/...`. A leading `v` or a pre-release suffix fails. Any `modules` key other than `hosting` fails. `modules` with no `hosting` pin fails.
 
 ## Not in this schema
 

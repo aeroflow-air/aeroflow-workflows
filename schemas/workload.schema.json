@@ -29,15 +29,15 @@
     },
     "modules": {
       "type": "object",
-      "description": "Optional exact br/platform pins in Bicep colon form (ADR-0009). Not a capability-to-module map. The only key ADR-0009 names is hosting.",
+      "description": "Optional exact module pins in Bicep colon form (ADR-0009). Either br/platform:<module>:<semver> or br:ghcr.io/aeroflow-air/<module>:<semver>. Not a capability-to-module map. The only key ADR-0009 names is hosting.",
       "additionalProperties": false,
       "required": ["hosting"],
       "minProperties": 1,
       "properties": {
         "hosting": {
           "type": "string",
-          "pattern": "^br/platform:[a-z][a-z0-9-]*:[0-9]+\\.[0-9]+\\.[0-9]+$",
-          "description": "Bicep registry pin. ADR-0009's example writes br/platform:container-app-service:x.y.z; x.y.z is a placeholder, so this pattern requires a numeric major.minor.patch. The module name is not fixed."
+          "pattern": "^(br/platform:|br:ghcr\\.io/aeroflow-air/)[a-z][a-z0-9-]*:[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Bicep registry pin. Either the ADR-0009 alias form br/platform:<module>:<major>.<minor>.<patch>, or br:ghcr.io/aeroflow-air/<module>:<major>.<minor>.<patch>. The module name is not fixed to container-app-service. The tag is numeric major.minor.patch with no leading v and no pre-release. No other registry is accepted."
         }
       }
     }
