@@ -1,0 +1,202 @@
+name: Label AI assistance
+
+# Reusable workflow — Phase B automation for ADR-0012.
+#
+# Caller example (golden-path service repo):
+#
+#   name: AI assistance labels
+#   on:
+#     pull_request:
+#       types: [opened, edited, synchronize, ready_for_review, reopened, labeled, unlabeled]
+#     issue_comment:
+#       types: [created]
+#   permissions:
+#     contents: read
+#     pull-requests: write
+#   jobs:
+#     label:
+#       if: github.event_name == 'pull_request' || github.event.issue.pull_request
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@main
+#       secrets:
+#         CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}   # optional
+#       permissions:
+#         contents: read
+#         pull-requests: write
+#
+# Secrets (optional):
+#   CURSOR_API_KEY — Cursor Enterprise admin/API key for AI Code Tracking.
+#     Placeholder-friendly: if unset/REPLACE_*, Cursor band is skipped and
+#     trailers / co-authors remain the fallback.
+#
+# Not integrated (cannot attribute to a PR — see handbook docs):
+#   GitHub Copilot Usage Metrics API, Claude Code Analytics API, Windsurf Analytics.
+# Copilot *cloud agent* authorship is detected via the PR user login (GitHub-native).
+
+on:
+  workflow_call:
+    secrets:
+      CURSOR_API_KEY:
+        description: Cursor Enterprise API key for AI Code Tracking (optional)
+        required: false
+    inputs:
+      workflows_ref:
+        description: Git ref of aeroflow-workflows to load scripts from (match the uses: @pin)
+        type: string
+        required: false
+        default: main
+      cursor_min_ai_share:
+        description: Min (tab+composer)/totalLinesAdded to treat a commit as AI-authored
+        type: string
+        required: false
+        default: "0.15"
+      cursor_min_composer_lines:
+        description: Min composer lines added to treat a commit as AI-authored
+        type: string
+        required: false
+        default: "10"
+      dry_run:
+        description: If true, compute decision but do not mutate labels/comments
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let n = context.payload.pull_request && context.payload.pull_request.number;
+            if (!n && context.payload.issue && context.payload.issue.pull_request) {
+              n = context.payload.issue.number;
+            }
+            if (!n) {
+              core.setFailed('No pull request in this event');
+              return;
+            }
+            core.setOutput('number', String(n));
+
+      - name: Checkout aeroflow-workflows scripts
+        uses: actions/checkout@v4
+        with:
+          repository: aeroflow-air/aeroflow-workflows
+          # Pin to the same ref as `uses: .../label-ai-assistance.yml@<ref>`.
+          ref: ${{ inputs.workflows_ref }}
+          path: .aeroflow-workflows
+          sparse-checkout: |
+            scripts/label_ai_assistance.py
+            scripts/fetch_cursor_ai_commits.py
+          sparse-checkout-cone-mode: false
+
+      - name: Collect PR context
+        id: ctx
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const number = Number('${{ steps.pr.outputs.number }}');
+            const pr = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner, repo, pull_number: number, per_page: 100
+            });
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: number, per_page: 100
+            });
+            const labels = (pr.data.labels || []).map(l => l.name);
+            const ready = pr.data.draft === false;
+            const contextPayload = {
+              body: pr.data.body || '',
+              pr_user: pr.data.user && pr.data.user.login,
+              current_labels: labels,
+              ready_for_review: ready,
+              cursor_min_ai_share: Number('${{ inputs.cursor_min_ai_share }}'),
+              cursor_min_composer_lines: Number('${{ inputs.cursor_min_composer_lines }}'),
+              commits: commits.map(c => ({
+                sha: c.sha,
+                message: c.commit && c.commit.message
+              })),
+              comments: comments.map(c => ({
+                body: c.body || '',
+                user: c.user && c.user.login
+              })),
+              cursor_commits: []
+            };
+            fs.writeFileSync('ai-label-context.json', JSON.stringify(contextPayload, null, 2));
+            core.setOutput('head_repo', `${owner}/${repo}`);
+
+      - name: Fetch Cursor AI commit metrics (optional)
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          python3 .aeroflow-workflows/scripts/fetch_cursor_ai_commits.py \
+            --output cursor-commits.json \
+            --start 14d \
+            --end now \
+            --repo-filter "${{ steps.ctx.outputs.head_repo }}"
+          python3 - <<'PY'
+          import json
+          ctx = json.load(open("ai-label-context.json"))
+          ctx["cursor_commits"] = json.load(open("cursor-commits.json"))
+          json.dump(ctx, open("ai-label-context.json", "w"), indent=2)
+          print(f"merged {len(ctx['cursor_commits'])} cursor rows into context (no user fields)")
+          PY
+
+      - name: Decide labels
+        run: |
+          python3 .aeroflow-workflows/scripts/label_ai_assistance.py \
+            --input ai-label-context.json \
+            --output ai-label-result.json
+          cat ai-label-result.json
+
+      - name: Apply labels and comment
+        if: ${{ inputs.dry_run == false }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('ai-label-result.json', 'utf8'));
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const number = Number('${{ steps.pr.outputs.number }}');
+            core.info(`action=${result.action} signal=${result.signal}`);
+
+            for (const name of (result.labels_remove || [])) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+            }
+            if ((result.labels_add || []).length) {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: number, labels: result.labels_add
+              });
+            }
+
+            if (result.comment && (result.action === 'apply' || result.action === 'remind' || result.action === 'unlock')) {
+              const marker = '<!-- aeroflow-ai-label-bot -->';
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100
+              });
+              const existing = comments.find(c => (c.body || '').includes(marker));
+              const body = `${marker}\n${result.comment}`;
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner, repo, comment_id: existing.id, body
+                });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+              }
+            }
