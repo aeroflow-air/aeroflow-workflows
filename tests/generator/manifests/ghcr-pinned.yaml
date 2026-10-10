@@ -1,0 +1,7 @@
+# Synthetic: GHCR pin form from infra-platform.
+workload: gate-allocation
+repo: svc-gate-allocation
+dataClass: confidential
+capabilities: [http]
+modules:
+  hosting: br:ghcr.io/aeroflow-air/container-app-service:0.1.0
