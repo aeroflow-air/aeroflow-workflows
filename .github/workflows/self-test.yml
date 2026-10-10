@@ -6,6 +6,7 @@ name: Self-test
 # the next tag.
 #
 # Check-run names (required on main): `lint` and `dotnet-ci / build-and-test`.
+# `workload-deploy / generate` also runs here; it is not required yet.
 # The workload schema check is a step in `lint`, not a separate workflow.
 
 on:
@@ -41,9 +42,23 @@ jobs:
           .schema-venv/bin/pip install --disable-pip-version-check 'jsonschema==4.23.0' 'PyYAML==6.0.2'
           .schema-venv/bin/python tests/workload-schema/validate.py
 
+      # Same required check. Unit and golden-file tests for the generator.
+      - name: Test workload generator
+        run: .schema-venv/bin/python -m unittest discover -s tests/generator -v
+
   dotnet-ci:
     uses: ./.github/workflows/dotnet-ci.yml
     with:
       solution: tests/sample/Sample.sln
+    permissions:
+      contents: read
+
+  # Calls workload-deploy.yml against this repo's flight-status fixture, so the
+  # generator, stand-in module and bicep build/lint are proven before a tag.
+  workload-deploy:
+    uses: ./.github/workflows/workload-deploy.yml
+    with:
+      workflows_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      manifest: tests/generator/manifests/svc-flight-status.yaml
     permissions:
       contents: read
