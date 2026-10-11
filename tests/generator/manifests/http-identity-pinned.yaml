@@ -1,0 +1,7 @@
+# Synthetic: ADR-0009's example with a real-looking pin.
+workload: flight-status
+repo: svc-flight-status
+dataClass: internal
+capabilities: [http, identity]
+modules:
+  hosting: br/platform:container-app-service:0.1.0

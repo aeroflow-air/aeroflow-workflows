@@ -8,6 +8,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 |----------|---------|-------------|
 | `validate-decisions.yml` | ADR shape, lifecycle, immutability | `@v1` (tag pending) |
 | `dotnet-ci.yml` | .NET restore → build → test | `@v0.1.0` |
+| `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
 
 ## .NET CI
@@ -49,6 +50,22 @@ jobs:
 ## Workload manifest schema
 
 [`schemas/workload.schema.json`](schemas/README.md) is the JSON Schema for `workload.yaml` (ADR-0009). It is versioned with this repo's tags. `v0.1.0` does not include it. Detail, including what the schema refuses, is in [`schemas/README.md`](schemas/README.md).
+
+## Workload generator and shared deploy workflow (ADR-0009)
+
+- [`generator/generate.py`](generator/README.md) validates a `workload.yaml` against the schema and writes a Bicep composition that references `br/platform:*` modules. `http` and `identity` map to `container-app-service`; `store` and `queue` fail as not yet supported.
+- [`modules/`](modules/README.md) holds a local stand-in for `container-app-service` (copied from `infra-platform`), because no module is published yet. `--local-modules` compiles against it.
+- `.github/workflows/workload-deploy.yml` (`workflow_call`) checks out the caller, generates, runs `bicep build` and `bicep lint`, and uploads the Bicep as the `workload-bicep` artifact. What-if and deploy are a gated TODO: zero cost, no Azure login.
+
+```yaml
+jobs:
+  workload:
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/workload-deploy.yml@<tag>
+    with:
+      workflows_ref: <tag>   # keep in sync with the uses: pin above
+    permissions:
+      contents: read
+```
 
 ## Self-test
 

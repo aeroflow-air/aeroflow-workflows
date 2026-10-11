@@ -1,0 +1,107 @@
+name: Workload deploy
+
+# Reusable shared deploy workflow (ADR-0009, platform-handbook #58).
+#
+# Today it only proves the paved road, at zero cost: validate workload.yaml
+# against schemas/workload.schema.json, generate the Bicep composition,
+# `bicep build` and `bicep lint` it, and upload it as an artifact.
+# No Azure login, no subscription, no what-if, no deployment.
+#
+# Caller example (service repo):
+#
+#   jobs:
+#     workload:
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/workload-deploy.yml@<tag>
+#       with:
+#         workflows_ref: <tag>   # keep in sync with the uses: pin above
+#       permissions:
+#         contents: read
+
+on:
+  workflow_call:
+    inputs:
+      workflows_ref:
+        description: "Git ref of aeroflow-workflows to load the schema, generator and module stand-ins from (match the uses: @pin)"
+        type: string
+        required: true
+      manifest:
+        description: "Path to the manifest in the caller repo"
+        type: string
+        required: false
+        default: workload.yaml
+      local_modules:
+        description: "Compile against the local module stand-ins in aeroflow-workflows/modules (no br/platform module is published yet)"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  BICEP_VERSION: v0.47.16
+
+jobs:
+  generate:
+    name: generate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller
+        uses: actions/checkout@v4
+        with:
+          path: caller
+
+      - name: Checkout aeroflow-workflows
+        uses: actions/checkout@v4
+        with:
+          repository: aeroflow-air/aeroflow-workflows
+          ref: ${{ inputs.workflows_ref }}
+          path: .aeroflow-workflows
+
+      - name: Install generator dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/gen-venv"
+          "$RUNNER_TEMP/gen-venv/bin/pip" install --disable-pip-version-check 'jsonschema==4.23.0' 'PyYAML==6.0.2'
+
+      # Validates against the schema first; store/queue fail as not yet supported.
+      - name: Validate manifest and generate Bicep
+        env:
+          MANIFEST: caller/${{ inputs.manifest }}
+          LOCAL_MODULES: ${{ inputs.local_modules }}
+        run: |
+          args=(--manifest "$MANIFEST" --out-dir "$RUNNER_TEMP/generated")
+          if [ "$LOCAL_MODULES" = "true" ]; then
+            args+=(--local-modules .aeroflow-workflows/modules)
+          fi
+          "$RUNNER_TEMP/gen-venv/bin/python" .aeroflow-workflows/generator/generate.py "${args[@]}"
+          cat "$RUNNER_TEMP/generated/main.bicep"
+
+      # Standalone binary, same pin as infra-platform. No az, no Azure login.
+      - name: Install Bicep
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bicep" "https://github.com/Azure/bicep/releases/download/${BICEP_VERSION}/bicep-linux-x64"
+          chmod +x "$RUNNER_TEMP/bicep"
+          sudo mv "$RUNNER_TEMP/bicep" /usr/local/bin/bicep
+          bicep --version
+
+      - name: bicep build
+        run: bicep build "$RUNNER_TEMP/generated/main.bicep" --outfile "$RUNNER_TEMP/generated/main.json"
+
+      - name: bicep lint
+        run: bicep lint "$RUNNER_TEMP/generated/main.bicep"
+
+      - name: Upload generated Bicep
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-bicep
+          path: |
+            ${{ runner.temp }}/generated/main.bicep
+            ${{ runner.temp }}/generated/main.json
+          if-no-files-found: error
+
+  # TODO(#58, gated): what-if and deploy. Not implemented on purpose.
+  # Needs Tony's approval and a personal Azure subscription (never the work
+  # tenant), plus the plan/apply identities in ADR-0010 via OIDC. Until then
+  # this workflow must not log in to Azure, run what-if, or deploy.
