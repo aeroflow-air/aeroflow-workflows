@@ -1,0 +1,147 @@
+name: AI code review
+
+# Reusable workflow: automated PR review with anthropics/claude-code-action.
+# Called by a service repo as:
+#
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, ready_for_review, reopened]
+#   jobs:
+#     ai-review:
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.0
+#       secrets:
+#         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+#       permissions:
+#         contents: read
+#         pull-requests: write
+#         id-token: write
+#
+# Advisory only: comments, never approves or blocks, never pushes code.
+# Skips: drafts, fork PRs (no secrets), PRs labelled `skip-ai-review`,
+# and PRs over `max-changed-lines`. Requires the Claude GitHub app on the org.
+# id-token: write is needed because the action swaps the workflow's OIDC
+# token for a short-lived Claude app token; nothing else uses it.
+
+on:
+  workflow_call:
+    inputs:
+      max-turns:
+        description: Cap on Claude turns (cost guard)
+        type: number
+        required: false
+        default: 15
+      max-changed-lines:
+        description: Skip review when additions + deletions exceed this (cost guard)
+        type: number
+        required: false
+        default: 1500
+      skip-label:
+        description: PR label that opts a PR out of AI review
+        type: string
+        required: false
+        default: skip-ai-review
+      model:
+        description: Claude model id; empty uses the action default
+        type: string
+        required: false
+        default: ""
+      extra-instructions:
+        description: Repo-specific review guidance appended to the AeroFlow prompt
+        type: string
+        required: false
+        default: ""
+    secrets:
+      anthropic-api-key:
+        description: Anthropic API key (org secret ANTHROPIC_API_KEY)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: review
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, inputs.skip-label)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: ai-code-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Size guard
+        id: size
+        env:
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+          LIMIT: ${{ inputs.max-changed-lines }}
+        run: |
+          total=$((ADDITIONS + DELETIONS))
+          if [ "$total" -gt "$LIMIT" ]; then
+            echo "::notice::Skipping AI review: ${total} changed lines exceeds ${LIMIT}."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.size.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Build Claude args
+        if: steps.size.outputs.run == 'true'
+        id: args
+        env:
+          MAX_TURNS: ${{ inputs.max-turns }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          args="--max-turns ${MAX_TURNS} --allowedTools \"mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep\""
+          if [ -n "${MODEL}" ]; then args="${args} --model ${MODEL}"; fi
+          echo "claude-args=${args}" >> "$GITHUB_OUTPUT"
+
+      - name: Claude review
+        if: steps.size.outputs.run == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.anthropic-api-key }}
+          use_sticky_comment: true
+          claude_args: ${{ steps.args.outputs.claude-args }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are reviewing a pull request for AeroFlow, a .NET 8 event-driven
+            airport platform. Review only the diff (`gh pr diff`); read other files
+            only when needed for context. Be concise and specific. Do not nitpick
+            formatting. Do not repeat what CI (build, tests, actionlint) already checks.
+
+            Check, in priority order:
+            1. Event contracts: each service owns and publishes only to its own topic
+               (e.g. flight-events, gate-events, baggage-events). Flag breaking changes to
+               event shapes or names, missing idempotency on handlers (duplicate delivery
+               must be safe), missing handling for unknown/late/out-of-order events, and
+               anything that would push messages to the dead-letter queue unexpectedly.
+            2. Docs: if inputs, outputs, settings or failure modes change, docs/service.md
+               must be updated to the platform docs standard (inputs, outputs, settings,
+               known failure modes with log signatures). Flag when it is missing or stale.
+            3. Tests: new behaviour and event handlers need unit tests; call out untested
+               branches and failure paths.
+            4. Security: secrets in code or logs, unvalidated input, over-broad workflow
+               permissions, unpinned actions or reusable workflows (callers must pin a tag).
+            5. .NET 8 practice: async/await correctness (no .Result/.Wait), CancellationToken
+               flow, disposal, nullable warnings, structured logging, minimal API conventions.
+
+            Use inline comments for specific lines. Finish with one short top-level comment:
+            a 2-3 line summary and a list of blocking vs non-blocking findings. If nothing
+            significant, say so in one line. Never approve or request changes.
+
+            ${{ inputs.extra-instructions }}
