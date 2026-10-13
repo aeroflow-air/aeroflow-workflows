@@ -10,6 +10,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 | `dotnet-ci.yml` | .NET restore → build → test | `@v0.1.0` |
 | `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
+| `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.0` |
 
 ## .NET CI
 
@@ -112,3 +113,34 @@ jobs:
 
 No secrets required. Permissions on the job: `contents: read`, `pull-requests: write` only.
 
+
+## AI code review
+
+`ai-code-review.yml` runs an advisory PR review with the official
+[`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action),
+using a prompt tuned to AeroFlow standards (event contracts, `docs/service.md`,
+tests, security, .NET 8). It posts inline comments and one sticky summary
+comment; it never approves, blocks or pushes.
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  ai-review:
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.0
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write   # OIDC exchange for the Claude GitHub app token
+```
+
+Cost guards and skips: drafts, PRs labelled `skip-ai-review`, PRs over
+`max-changed-lines` (default 1500) and `max-turns` (default 15). Fork PRs are
+skipped because GitHub does not pass secrets to them. Needs the Claude GitHub
+app installed on the org and the `ANTHROPIC_API_KEY` org secret visible to the
+calling repo. Inputs: `max-turns`, `max-changed-lines`, `skip-label`, `model`,
+`extra-instructions`. Not a required check.
