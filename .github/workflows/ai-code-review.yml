@@ -8,7 +8,7 @@ name: AI code review
 #       types: [opened, synchronize, ready_for_review, reopened]
 #   jobs:
 #     ai-review:
-#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.0
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.1
 #       secrets:
 #         anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 #       permissions:
@@ -29,7 +29,7 @@ on:
         description: Cap on Claude turns (cost guard)
         type: number
         required: false
-        default: 15
+        default: 25
       max-changed-lines:
         description: Skip review when additions + deletions exceed this (cost guard)
         type: number
@@ -110,6 +110,11 @@ jobs:
 
       - name: Claude review
         if: steps.size.outputs.run == 'true'
+        id: claude
+        # Advisory review: the action fails the step when Claude finishes over
+        # --max-turns even though it already posted (no input turns that off),
+        # so don't let that turn the PR red. Any failure is surfaced as a warning below.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.anthropic-api-key }}
@@ -139,9 +144,18 @@ jobs:
                permissions, unpinned actions or reusable workflows (callers must pin a tag).
             5. .NET 8 practice: async/await correctness (no .Result/.Wait), CancellationToken
                flow, disposal, nullable warnings, structured logging, minimal API conventions.
+            6. Domain conventions: follow the repo's CLAUDE.md and ADR-0004 functional style
+               (https://github.com/aeroflow-air/platform-handbook/blob/main/docs/standards/coding-standards.md):
+               pure static domain functions composed with Bind/Map/Match, immutable records,
+               Result<T> with typed errors instead of exceptions, Option<T> instead of null,
+               no I/O, logging, clock or static mutable state in Domain/.
 
             Use inline comments for specific lines. Finish with one short top-level comment:
             a 2-3 line summary and a list of blocking vs non-blocking findings. If nothing
             significant, say so in one line. Never approve or request changes.
 
             ${{ inputs.extra-instructions }}
+
+      - name: Report review outcome
+        if: steps.size.outputs.run == 'true' && steps.claude.outcome == 'failure'
+        run: echo "::warning::AI review step failed (often the max-turns cap after posting). Check the PR for comments and the step log; the review is advisory so the job stays green."
