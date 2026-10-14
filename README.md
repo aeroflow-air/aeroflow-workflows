@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 | `dotnet-ci.yml` | .NET restore → build → test | `@v0.1.0` |
 | `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
-| `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.0` |
+| `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.1` |
 
 ## .NET CI
 
@@ -119,7 +119,9 @@ No secrets required. Permissions on the job: `contents: read`, `pull-requests: w
 `ai-code-review.yml` runs an advisory PR review with the official
 [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action),
 using a prompt tuned to AeroFlow standards (event contracts, `docs/service.md`,
-tests, security, .NET 8). It posts inline comments and one sticky summary
+tests, security, .NET 8, and ADR-0004 domain conventions from the
+[coding standards](https://github.com/aeroflow-air/platform-handbook/blob/main/docs/standards/coding-standards.md)
+and the repo's `CLAUDE.md`, which the action loads automatically). It posts inline comments and one sticky summary
 comment; it never approves, blocks or pushes.
 
 ```yaml
@@ -129,7 +131,7 @@ on:
 
 jobs:
   ai-review:
-    uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.0
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/ai-code-review.yml@v0.3.1
     secrets:
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
     permissions:
@@ -139,8 +141,10 @@ jobs:
 ```
 
 Cost guards and skips: drafts, PRs labelled `skip-ai-review`, PRs over
-`max-changed-lines` (default 1500) and `max-turns` (default 15). Fork PRs are
+`max-changed-lines` (default 1500) and `max-turns` (default 25). Hitting the turn cap, or any other failure of the
+review step, shows as a warning rather than failing the job, since the review is advisory. Fork PRs are
 skipped because GitHub does not pass secrets to them. Needs the Claude GitHub
 app installed on the org and the `ANTHROPIC_API_KEY` org secret visible to the
 calling repo. Inputs: `max-turns`, `max-changed-lines`, `skip-label`, `model`,
-`extra-instructions`. Not a required check.
+`extra-instructions`. Not a required check. Put repo conventions in a
+`CLAUDE.md` at the repo root rather than in `extra-instructions`.
