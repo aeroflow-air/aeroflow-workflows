@@ -65,7 +65,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/gen-venv"
           "$RUNNER_TEMP/gen-venv/bin/pip" install --disable-pip-version-check 'jsonschema==4.23.0' 'PyYAML==6.0.2'
 
-      # Validates against the schema first; store/queue fail as not yet supported.
+      # Validates against the schema first; store fails as not yet supported, queue needs an events: block.
       - name: Validate manifest and generate Bicep
         env:
           MANIFEST: caller/${{ inputs.manifest }}

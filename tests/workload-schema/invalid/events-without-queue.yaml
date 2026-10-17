@@ -1,0 +1,6 @@
+workload: svc-baggage-reclaim
+repo: svc-baggage-reclaim
+dataClass: internal
+capabilities: [http]
+events:
+  publishes: [baggage-events]
