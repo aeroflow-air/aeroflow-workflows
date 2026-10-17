@@ -5,11 +5,13 @@ Validates the manifest against schemas/workload.schema.json, maps
 capabilities to governed br/platform modules, and writes main.bicep.
 The output is not committed to service repos (ADR-0009).
 
-Mapping today (platform-handbook #58):
+Mapping today (platform-handbook #58, #64; aeroflow-workflows #10):
   http      -> container-app-service (hosting)
   identity  -> container-app-service (its system-assigned managed identity)
+  queue     -> existing platform Service Bus namespace: Sender on the
+               workload's own topic, Receiver on its own subscriptions,
+               from the manifest's events: block (ADR-0019)
   store     -> not yet supported
-  queue     -> not yet supported
 
 Usage:
   generate.py --manifest workload.yaml --out-dir out [--local-modules DIR]
@@ -35,8 +37,20 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "schemas" / "workload.schema.json"
 
 HOSTING_MODULE = "container-app-service"
-SUPPORTED = {"http", "identity"}
-NOT_YET_SUPPORTED = {"store", "queue"}
+SUPPORTED = {"http", "identity", "queue"}
+NOT_YET_SUPPORTED = {"store"}
+# ADR-0019 topic ownership: the only publisher of a <domain>-events topic.
+# flight-events is owned by the aeroflow-local flight simulator (a local tool
+# with no workload.yaml), so no service manifest may publish to it. A new
+# topic must be registered here by the platform before anyone declares it.
+TOPIC_OWNERS = {
+    "flight-events": "flight-simulator",
+    "gate-events": "svc-gate-allocation",
+    "baggage-events": "svc-baggage-reclaim",
+}
+# Azure Service Bus data-plane built-in roles.
+SB_SENDER_ROLE = "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39"
+SB_RECEIVER_ROLE = "4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0"
 # Matches container-app-service's own `name` constraints (2-28 chars).
 APP_NAME = re.compile(r"^[a-z][a-z0-9-]{1,27}$")
 PIN = re.compile(r"^(?:br/platform:|br:ghcr\.io/aeroflow-air/)([a-z][a-z0-9-]*):(\d+\.\d+\.\d+)$")
@@ -63,6 +77,113 @@ def validate(data) -> None:
         raise ManifestError("workload.yaml does not match the schema:\n" + "\n".join(lines))
 
 
+def _symbol(name: str) -> str:
+    """Bicep-safe symbol fragment: baggage-events -> BaggageEvents."""
+    return "".join(part.capitalize() for part in name.replace("_", "-").split("-") if part)
+
+
+def events_of(manifest: dict) -> tuple[list[str], list[tuple[str, str]]]:
+    """Validate the events: block (ADR-0019) and return (publishes, [(topic, subscription)]).
+
+    The schema checks the shape; ownership and cross-field rules live here.
+    """
+    events = manifest.get("events")
+    if events is None:
+        if "queue" in manifest["capabilities"]:
+            raise ManifestError(
+                "capability queue needs an events: block saying what the workload publishes and "
+                "subscribes to (ADR-0019); queue on its own wires nothing."
+            )
+        return [], []
+    if "queue" not in manifest["capabilities"]:
+        raise ManifestError("events: needs the queue capability (ADR-0019).")
+
+    workload = manifest["workload"]
+    publishes = list(events.get("publishes") or [])
+    for topic in publishes:
+        owner = TOPIC_OWNERS.get(topic)
+        if owner is None:
+            raise ManifestError(
+                f"events.publishes '{topic}' is not a registered topic; the platform registers "
+                "topic ownership (ADR-0019) before a workload may publish to it."
+            )
+        if owner != workload:
+            raise ManifestError(
+                f"events.publishes '{topic}' is owned by {owner}; {workload} may not publish to "
+                "another owner's topic (ADR-0019)."
+            )
+
+    default_subscription = workload.removeprefix("svc-")
+    subscribes: list[tuple[str, str]] = []
+    for entry in events.get("subscribes") or []:
+        pair = (entry["topic"], entry.get("subscription") or default_subscription)
+        if pair in subscribes:
+            raise ManifestError(f"events.subscribes repeats {pair[0]}/{pair[1]}.")
+        subscribes.append(pair)
+    return publishes, subscribes
+
+
+def _events_bicep(publishes: list[str], subscribes: list[tuple[str, str]], workload: str) -> str:
+    if not publishes and not subscribes:
+        return ""
+    topics = list(dict.fromkeys([*publishes, *(topic for topic, _ in subscribes)]))
+    lines = [
+        "",
+        "// queue (ADR-0019): the namespace, its topics and subscriptions are platform-created;",
+        "// this composition only references them and grants the workload identity its roles:",
+        "// Sender on its own topic only, Receiver only on its own subscriptions.",
+        "@description('Existing platform Service Bus namespace (topics and subscriptions are created by the platform, never by this composition).')",
+        "param serviceBusNamespace string",
+        "",
+        "resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' existing = {",
+        "  name: serviceBusNamespace",
+        "}",
+    ]
+    for topic in topics:
+        lines += [
+            "",
+            f"resource {_symbol(topic)}Topic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' existing = {{",
+            "  parent: serviceBus",
+            f"  name: '{topic}'",
+            "}",
+        ]
+    for topic in publishes:
+        sym = _symbol(topic)
+        lines += [
+            "",
+            f"resource {sym}Sender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {{",
+            f"  name: guid({sym}Topic.id, '{workload}', '{SB_SENDER_ROLE}')",
+            f"  scope: {sym}Topic",
+            "  properties: {",
+            "    principalId: hosting.outputs.principalId",
+            f"    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '{SB_SENDER_ROLE}')",
+            "    principalType: 'ServicePrincipal'",
+            "  }",
+            "}",
+        ]
+    for topic, subscription in subscribes:
+        sym = _symbol(topic)
+        sub_sym = f"{sym}{_symbol(subscription)}Subscription"
+        lines += [
+            "",
+            f"resource {sub_sym} 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' existing = {{",
+            f"  parent: {sym}Topic",
+            f"  name: '{subscription}'",
+            "}",
+            "",
+            f"resource {sub_sym}Receiver 'Microsoft.Authorization/roleAssignments@2022-04-01' = {{",
+            f"  name: guid({sub_sym}.id, '{workload}', '{SB_RECEIVER_ROLE}')",
+            f"  scope: {sub_sym}",
+            "  properties: {",
+            "    principalId: hosting.outputs.principalId",
+            f"    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '{SB_RECEIVER_ROLE}')",
+            "    principalType: 'ServicePrincipal'",
+            "  }",
+            "}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
 def generate(manifest: dict, local_module_ref: str | None = None) -> str:
     """Return main.bicep for a schema-valid manifest.
 
@@ -74,13 +195,15 @@ def generate(manifest: dict, local_module_ref: str | None = None) -> str:
     if pending:
         raise ManifestError(
             f"capability {', '.join(pending)} is not yet supported: no governed module exists "
-            "(platform-handbook #58). Supported today: http, identity."
+            "(platform-handbook #58). Supported today: http, identity, queue."
         )
     if "http" not in caps:
         raise ManifestError(
             "capabilities must include http: the only module today is container-app-service, "
             "which hosts an HTTP workload. identity on its own has nothing to attach to."
         )
+
+    publishes, subscribes = events_of(manifest)
 
     name = manifest["workload"]
     if not APP_NAME.match(name):
@@ -134,7 +257,7 @@ module hosting '{ref}' = {{
     ingress: ingress
   }}
 }}
-"""
+{_events_bicep(publishes, subscribes, name)}"""
 
 
 def main(argv: list[str] | None = None) -> int:

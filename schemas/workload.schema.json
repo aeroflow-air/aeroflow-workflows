@@ -5,7 +5,12 @@
   "description": "Request for paved-road infrastructure (ADR-0009). Not a deployment. Unknown keys are rejected, including any raw resource, Bicep or ARM block.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["workload", "repo", "dataClass", "capabilities"],
+  "required": [
+    "workload",
+    "repo",
+    "dataClass",
+    "capabilities"
+  ],
   "properties": {
     "workload": {
       "type": "string",
@@ -17,13 +22,22 @@
     },
     "dataClass": {
       "type": "string",
-      "enum": ["public", "internal", "confidential"]
+      "enum": [
+        "public",
+        "internal",
+        "confidential"
+      ]
     },
     "capabilities": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["http", "identity", "store", "queue"]
+        "enum": [
+          "http",
+          "identity",
+          "store",
+          "queue"
+        ]
       },
       "uniqueItems": true
     },
@@ -31,7 +45,9 @@
       "type": "object",
       "description": "Optional exact module pins in Bicep colon form (ADR-0009). Either br/platform:<module>:<semver> or br:ghcr.io/aeroflow-air/<module>:<semver>. Not a capability-to-module map. The only key ADR-0009 names is hosting.",
       "additionalProperties": false,
-      "required": ["hosting"],
+      "required": [
+        "hosting"
+      ],
       "minProperties": 1,
       "properties": {
         "hosting": {
@@ -40,6 +56,64 @@
           "description": "Bicep registry pin. Either the ADR-0009 alias form br/platform:<module>:<major>.<minor>.<patch>, or br:ghcr.io/aeroflow-air/<module>:<major>.<minor>.<patch>. The module name is not fixed to container-app-service. The tag is numeric major.minor.patch with no leading v and no pre-release. No other registry is accepted."
         }
       }
+    },
+    "events": {
+      "type": "object",
+      "description": "Service Bus event wiring (ADR-0019). Requires the queue capability. Topics are <domain>-events, owned per ADR-0019; the generator enforces ownership and grants Sender/Receiver RBAC.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "publishes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*-events$"
+          }
+        },
+        "subscribes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "topic"
+            ],
+            "properties": {
+              "topic": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*-events$"
+              },
+              "subscription": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                "maxLength": 50
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "events"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "contains": {
+              "const": "queue"
+            }
+          }
+        },
+        "required": [
+          "capabilities"
+        ]
+      }
+    }
+  ]
 }

@@ -28,6 +28,7 @@ CASES = {
     ("http-identity-pinned.yaml", "local"): "http-identity-pinned.local.bicep",
     ("http-identity-pinned.yaml", "registry"): "http-identity-pinned.registry.bicep",
     ("ghcr-pinned.yaml", "registry"): "ghcr-pinned.registry.bicep",
+    ("svc-baggage-reclaim.yaml", "local"): "svc-baggage-reclaim.local.bicep",
 }
 
 
@@ -61,8 +62,50 @@ class GenerateTests(unittest.TestCase):
     def test_store_not_yet_supported(self):
         self.assertRefuses(base(capabilities=["http", "store"]), "store is not yet supported")
 
-    def test_queue_not_yet_supported(self):
-        self.assertRefuses(base(capabilities=["queue", "http"]), "queue is not yet supported")
+    def test_queue_needs_an_events_block(self):
+        self.assertRefuses(base(capabilities=["queue", "http"]), "queue needs an events: block")
+
+    def test_events_need_the_queue_capability(self):
+        self.assertRefuses(
+            base(capabilities=["http"], events={"publishes": ["baggage-events"]}),
+            "events: needs the queue capability")
+
+    def test_publishing_another_owners_topic_refused(self):
+        manifest = base(workload="svc-baggage-reclaim", repo="svc-baggage-reclaim",
+                        capabilities=["http", "queue"], events={"publishes": ["gate-events"]})
+        self.assertRefuses(manifest, "owned by svc-gate-allocation")
+
+    def test_publishing_flight_events_refused_for_services(self):
+        manifest = base(capabilities=["http", "queue"], events={"publishes": ["flight-events"]})
+        self.assertRefuses(manifest, "owned by flight-simulator")
+
+    def test_unregistered_topic_refused(self):
+        manifest = base(workload="svc-baggage-reclaim", repo="svc-baggage-reclaim",
+                        capabilities=["http", "queue"], events={"publishes": ["turnaround-events"]})
+        self.assertRefuses(manifest, "not a registered topic")
+
+    def test_events_wiring_senders_receivers_and_no_topic_creation(self):
+        manifest = base(workload="svc-baggage-reclaim", repo="svc-baggage-reclaim",
+                        capabilities=["http", "queue"],
+                        events={"publishes": ["baggage-events"],
+                                "subscribes": [{"topic": "flight-events", "subscription": "baggage-reclaim"}]})
+        out = g.generate(manifest, LOCAL_REF)
+        self.assertIn("param serviceBusNamespace string", out)
+        self.assertIn("resource BaggageEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' existing", out)
+        self.assertIn("resource FlightEventsBaggageReclaimSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' existing", out)
+        self.assertIn(g.SB_SENDER_ROLE, out)
+        self.assertIn(g.SB_RECEIVER_ROLE, out)
+        self.assertIn("hosting.outputs.principalId", out)
+        # Topics/subscriptions are platform-created: referenced as existing, never created here.
+        self.assertNotRegex(out, r"resource \w+ 'Microsoft\.ServiceBus/namespaces/topics@[0-9-]+' = \{(?!\s*existing)")
+        self.assertIn("'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' existing", out)
+
+    def test_subscription_defaults_to_workload_without_svc_prefix(self):
+        manifest = base(workload="svc-gate-allocation", repo="svc-gate-allocation",
+                        capabilities=["http", "queue"],
+                        events={"subscribes": [{"topic": "flight-events"}]})
+        _, subscribes = g.events_of(manifest)
+        self.assertEqual([("flight-events", "gate-allocation")], subscribes)
 
     def test_identity_without_http_refused(self):
         self.assertRefuses(base(capabilities=["identity"]), "must include http")

@@ -62,3 +62,13 @@ jobs:
       manifest: tests/generator/manifests/svc-flight-status.yaml
     permissions:
       contents: read
+
+  # Same proof for an events: manifest, so the Service Bus RBAC wiring and the
+  # module's principalId output compile in bicep build before a tag.
+  workload-deploy-events:
+    uses: ./.github/workflows/workload-deploy.yml
+    with:
+      workflows_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      manifest: tests/generator/manifests/svc-baggage-reclaim.yaml
+    permissions:
+      contents: read

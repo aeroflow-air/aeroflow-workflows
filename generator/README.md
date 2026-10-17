@@ -18,11 +18,12 @@ The repo already validates the schema with Python, `jsonschema` 4.23.0 and PyYAM
 | --- | --- | --- |
 | `http` | `container-app-service` | Required. One container app, ingress `internal` by default. |
 | `identity` | `container-app-service` | The module's system-assigned managed identity. No extra module. |
-| `store`, `queue` | none | Fail with "not yet supported" until a module and ADR exist. |
+| `queue` | existing platform Service Bus namespace | Needs an `events:` block (ADR-0019): the generator references the platform-created topics/subscriptions as `existing` and emits role assignments — Sender (`69a216fc-…`) on the workload's own topic only, Receiver (`4f6d3b9b-…`) only on its own subscriptions, scoped to `hosting.outputs.principalId`. Publishing to another owner's topic (including `flight-events`, owned by the flight simulator) is refused. |
+| `store` | none | Fails with "not yet supported" until a module and ADR exist. |
 
 The module reference is the manifest's `modules.hosting` pin, or with `--local-modules DIR` a relative path to `DIR/container-app-service/main.bicep`. Without either, the generator fails, because no version is published. Only `container-app-service` is accepted as the hosting module.
 
-The generated file declares `location` (defaults to the resource group), `containerImage` (from the future deploy step) and `ingress` (`internal` by default). It never contains a `resource` block.
+The generated file declares `location` (defaults to the resource group), `containerImage` (from the future deploy step) and `ingress` (`internal` by default). The hosting part is module-only; an `events:` composition additionally contains `existing` Service Bus references and `roleAssignments` resources (never topic or subscription creation).
 
 ## Tests
 
