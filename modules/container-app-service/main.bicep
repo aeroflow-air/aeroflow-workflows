@@ -1,10 +1,3 @@
-// LOCAL STAND-IN for br/platform:container-app-service (ADR-0009, platform-handbook #58).
-// Verbatim copy of aeroflow-air/infra-platform modules/container-app-service/main.bicep
-// at commit 5097465. That module is not published to any registry yet, and
-// publishing to Azure Container Registry is out of scope (zero cost), so the
-// generator's --local-modules mode points here so `bicep build` can compile
-// the generated composition in CI. Delete this folder once a registry pin
-// exists. Do not change it here: change infra-platform and re-copy.
 targetScope = 'resourceGroup'
 
 @description('Name of the container app. Lowercase letters, numbers and hyphens, 2 to 28 characters, starting with a letter. The environment is named <name>-env and the log workspace <name>-logs.')
@@ -91,3 +84,9 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
     }
   }
 }
+
+@description('Principal (object) id of the container app system-assigned managed identity. The workload generator uses it for role assignments (for example Service Bus Sender/Receiver, ADR-0019).')
+output principalId string = app.identity.principalId
+
+@description('Resource id of the container app.')
+output appId string = app.id

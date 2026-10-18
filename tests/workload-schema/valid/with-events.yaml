@@ -1,0 +1,9 @@
+workload: svc-baggage-reclaim
+repo: svc-baggage-reclaim
+dataClass: internal
+capabilities: [http, queue]
+events:
+  publishes: [baggage-events]
+  subscribes:
+    - topic: flight-events
+      subscription: baggage-reclaim
