@@ -34,6 +34,11 @@ on:
         type: boolean
         required: false
         default: true
+      generator:
+        description: "Which generator to run: python (generate.py, default) or csharp (generate.cs, .NET 10 file-based app). Both produce identical Bicep."
+        type: string
+        required: false
+        default: python
 
 permissions:
   contents: read
@@ -60,22 +65,45 @@ jobs:
           ref: ${{ inputs.workflows_ref }}
           path: .aeroflow-workflows
 
+      - name: Check generator choice
+        env:
+          GENERATOR: ${{ inputs.generator }}
+        run: |
+          case "$GENERATOR" in
+            python|csharp) ;;
+            *) echo "::error::generator must be python or csharp, got '$GENERATOR'"; exit 1 ;;
+          esac
+
       - name: Install generator dependencies
+        if: inputs.generator == 'python'
         run: |
           python3 -m venv "$RUNNER_TEMP/gen-venv"
           "$RUNNER_TEMP/gen-venv/bin/pip" install --disable-pip-version-check 'jsonschema==4.23.0' 'PyYAML==6.0.2'
+
+      - name: Set up .NET 10 SDK
+        if: inputs.generator == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
 
       # Validates against the schema first; store fails as not yet supported, queue needs an events: block.
       - name: Validate manifest and generate Bicep
         env:
           MANIFEST: caller/${{ inputs.manifest }}
           LOCAL_MODULES: ${{ inputs.local_modules }}
+          GENERATOR: ${{ inputs.generator }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
         run: |
           args=(--manifest "$MANIFEST" --out-dir "$RUNNER_TEMP/generated")
           if [ "$LOCAL_MODULES" = "true" ]; then
             args+=(--local-modules .aeroflow-workflows/modules)
           fi
-          "$RUNNER_TEMP/gen-venv/bin/python" .aeroflow-workflows/generator/generate.py "${args[@]}"
+          if [ "$GENERATOR" = "csharp" ]; then
+            dotnet run .aeroflow-workflows/generator/generate.cs -- "${args[@]}"
+          else
+            "$RUNNER_TEMP/gen-venv/bin/python" .aeroflow-workflows/generator/generate.py "${args[@]}"
+          fi
           cat "$RUNNER_TEMP/generated/main.bicep"
 
       # Standalone binary, same pin as infra-platform. No az, no Azure login.
