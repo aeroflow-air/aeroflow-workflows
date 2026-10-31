@@ -1,0 +1,44 @@
+# Suppressions for PSRule for Azure on the generated workload Bicep.
+# Each group is scoped to resources created by the container-app-service
+# stand-in module (tag aeroflow-module), so a new resource elsewhere is still
+# checked. Revisit each one when the module grows past the zero-cost
+# learning setup (ADR-0007 / ADR-0009). Never suppress a Security rule here
+# without a linked ADR or issue.
+---
+apiVersion: github.com/microsoft/PSRule/v1
+kind: SuppressionGroup
+metadata:
+  name: aeroflow.ContainerAppService.ZeroCost
+spec:
+  displayName: container-app-service zero-cost defaults
+  description: >-
+    Consumption-only, scale-to-zero container app with no VNet, no zones and a
+    single log workspace. Chosen on purpose to keep the learning platform at
+    zero cost (ADR-0007). Availability zones and VNet integration need a
+    dedicated environment with infrastructure subnet; min replicas >= 2 and
+    cross-region log replication add standing cost.
+  rule:
+    - Azure.ContainerApp.AvailabilityZone
+    - Azure.ContainerApp.MinReplicas
+    - Azure.Log.Replication
+  if:
+    field: tags.aeroflow-module
+    startsWith: 'container-app-service:'
+---
+apiVersion: github.com/microsoft/PSRule/v1
+kind: SuppressionGroup
+metadata:
+  name: aeroflow.ContainerAppService.IngressPendingNetworking
+spec:
+  displayName: container-app-service ingress until platform networking exists
+  description: >-
+    Ingress is internal by default, but the environment is not VNet-injected
+    and has no IP restrictions because there is no platform network or
+    Front Door yet. Remove this suppression when the module gets VNet
+    integration or ipSecurityRestrictions (track as a follow-up issue).
+  rule:
+    - Azure.ContainerApp.PublicAccess
+    - Azure.ContainerApp.RestrictIngress
+  if:
+    field: tags.aeroflow-module
+    startsWith: 'container-app-service:'

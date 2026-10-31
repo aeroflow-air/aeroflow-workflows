@@ -1,0 +1,39 @@
+# PSRule for Azure configuration for the generated workload Bicep
+# (workload-deploy.yml, analyse job). Docs: https://azure.github.io/PSRule.Rules.Azure/
+requires:
+  PSRule: '@pre >=2.9.0'
+  PSRule.Rules.Azure: '>=1.47.0'
+
+include:
+  module:
+    - PSRule.Rules.Azure
+
+# Only the generated main.bicep is passed in (workload-deploy.yml inputPath);
+# the module stand-ins are analysed through Bicep expansion.
+# Suppressions, with justification, are in .ps-rule/suppressions.Rule.yaml.
+
+execution:
+  # Generated files only contain parameters supplied at deploy time.
+  unprocessedObject: Ignore
+  ruleSuppressed: Ignore
+
+configuration:
+  # Expand .bicep files with the bicep CLI on PATH (installed by the job).
+  AZURE_BICEP_FILE_EXPANSION: true
+  AZURE_BICEP_FILE_EXPANSION_TIMEOUT: 30
+  AZURE_BICEP_CHECK_TOOL: true
+  # Values for required parameters with no default, used only for expansion.
+  AZURE_PARAMETER_DEFAULTS:
+    containerImage: mcr.microsoft.com/k8se/quickstart:latest
+    serviceBusNamespace: sb-aeroflow-placeholder
+  # Placeholder resource group used while expanding resourceGroup().location.
+  AZURE_RESOURCE_GROUP:
+    location: uksouth
+  AZURE_RESOURCE_ALLOWED_LOCATIONS:
+    - uksouth
+    - ukwest
+  AZURE_DEPLOYMENT_NONSENSITIVE_PARAMETER_NAMES: []
+
+output:
+  culture:
+    - en-GB

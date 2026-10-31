@@ -4,7 +4,8 @@ name: Workload deploy
 #
 # Today it only proves the paved road, at zero cost: validate workload.yaml
 # against schemas/workload.schema.json, generate the Bicep composition,
-# `bicep build` and `bicep lint` it, and upload it as an artifact.
+# `bicep build` and `bicep lint` it, analyse it with PSRule for Azure,
+# and upload it (with the PSRule SARIF report) as an artifact.
 # No Azure login, no subscription, no what-if, no deployment.
 #
 # Caller example (service repo):
@@ -71,12 +72,12 @@ jobs:
           MANIFEST: caller/${{ inputs.manifest }}
           LOCAL_MODULES: ${{ inputs.local_modules }}
         run: |
-          args=(--manifest "$MANIFEST" --out-dir "$RUNNER_TEMP/generated")
+          args=(--manifest "$MANIFEST" --out-dir "$GITHUB_WORKSPACE/.generated")
           if [ "$LOCAL_MODULES" = "true" ]; then
             args+=(--local-modules .aeroflow-workflows/modules)
           fi
           "$RUNNER_TEMP/gen-venv/bin/python" .aeroflow-workflows/generator/generate.py "${args[@]}"
-          cat "$RUNNER_TEMP/generated/main.bicep"
+          cat "$GITHUB_WORKSPACE/.generated/main.bicep"
 
       # Standalone binary, same pin as infra-platform. No az, no Azure login.
       - name: Install Bicep
@@ -87,18 +88,39 @@ jobs:
           bicep --version
 
       - name: bicep build
-        run: bicep build "$RUNNER_TEMP/generated/main.bicep" --outfile "$RUNNER_TEMP/generated/main.json"
+        run: bicep build "$GITHUB_WORKSPACE/.generated/main.bicep" --outfile "$GITHUB_WORKSPACE/.generated/main.json"
 
       - name: bicep lint
-        run: bicep lint "$RUNNER_TEMP/generated/main.bicep"
+        run: bicep lint "$GITHUB_WORKSPACE/.generated/main.bicep"
+
+      # PSRule for Azure (https://azure.github.io/PSRule.Rules.Azure/): expands
+      # the generated Bicep with the bicep CLI above and checks it against a
+      # pinned Well-Architected baseline. Offline, no Azure login. Fails on any
+      # rule failure or error; suppressions live in .ps-rule/ with reasons.
+      # Output lives in the workspace (.generated/) because the action resolves
+      # inputPath relative to it.
+      - name: PSRule for Azure
+        uses: microsoft/ps-rule@v2.9.0
+        with:
+          modules: PSRule.Rules.Azure
+          baseline: Azure.GA_2025_12
+          inputType: repository
+          inputPath: .generated/main.bicep
+          option: .aeroflow-workflows/ps-rule.yaml
+          source: .aeroflow-workflows/.ps-rule/
+          outcome: Fail,Error
+          summary: true
+          outputFormat: Sarif
+          outputPath: .generated/ps-rule-results.sarif
 
       - name: Upload generated Bicep
         uses: actions/upload-artifact@v4
         with:
           name: workload-bicep
           path: |
-            ${{ runner.temp }}/generated/main.bicep
-            ${{ runner.temp }}/generated/main.json
+            .generated/main.bicep
+            .generated/main.json
+            .generated/ps-rule-results.sarif
           if-no-files-found: error
 
   # TODO(#58, gated): what-if and deploy. Not implemented on purpose.
