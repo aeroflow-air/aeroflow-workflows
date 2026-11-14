@@ -16,7 +16,7 @@ name: Label AI assistance
 #   jobs:
 #     label:
 #       if: github.event_name == 'pull_request' || github.event.issue.pull_request
-#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@main
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@v0.5.0
 #       permissions:
 #         contents: read
 #         pull-requests: write
