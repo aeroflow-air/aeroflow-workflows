@@ -56,7 +56,7 @@ jobs:
 
 - [`generator/generate.py`](generator/README.md) validates a `workload.yaml` against the schema and writes a Bicep composition that references `br/platform:*` modules. `http` and `identity` map to `container-app-service`; `store` and `queue` fail as not yet supported.
 - [`modules/`](modules/README.md) holds a local stand-in for `container-app-service` (copied from `infra-platform`), because no module is published yet. `--local-modules` compiles against it.
-- `.github/workflows/workload-deploy.yml` (`workflow_call`) checks out the caller, generates, runs `bicep build` and `bicep lint`, and uploads the Bicep as the `workload-bicep` artifact. What-if and deploy are a gated TODO: zero cost, no Azure login.
+- `.github/workflows/workload-deploy.yml` (`workflow_call`) checks out the caller, generates with Python by default (`generator: csharp` opts in to `generate.cs`), runs `bicep build` and `bicep lint`, analyses the generated Bicep with PSRule for Azure, and uploads the Bicep plus the SARIF report as the `workload-bicep` artifact. What-if and deploy are a gated TODO: zero cost, no Azure login.
 
 ```yaml
 jobs:
@@ -148,3 +148,24 @@ app installed on the org and the `ANTHROPIC_API_KEY` org secret visible to the
 calling repo. Inputs: `max-turns`, `max-changed-lines`, `skip-label`, `model`,
 `extra-instructions`. Not a required check. Put repo conventions in a
 `CLAUDE.md` at the repo root rather than in `extra-instructions`.
+
+## PSRule for Azure (workload-deploy.yml)
+
+After `bicep build` and `bicep lint`, `workload-deploy.yml` runs [PSRule for Azure](https://azure.github.io/PSRule.Rules.Azure/) (`microsoft/ps-rule@v2.9.0`, `PSRule.Rules.Azure`, baseline `Azure.GA_2025_12`) on the generated `main.bicep`, whichever generator produced it (Python by default, or `generator: csharp`), with Bicep expansion so the module stand-ins are checked too. It runs offline with no Azure login. The job fails on any rule failure or error. A summary goes to the job page, and a SARIF report is uploaded with the `workload-bicep` artifact.
+
+- Config: [`ps-rule.yaml`](ps-rule.yaml). It holds placeholder values for parameters without defaults (expansion only), uses a `uksouth` placeholder resource group, and allows UK regions.
+- Suppressions: [`.ps-rule/suppressions.Rule.yaml`](.ps-rule/suppressions.Rule.yaml). They are scoped to resources tagged `aeroflow-module: container-app-service:*`.
+
+| Rule | Why it's suppressed |
+| --- | --- |
+| `Azure.ContainerApp.AvailabilityZone` | Zero-cost Consumption environment (ADR-0007); zones need a dedicated environment and subnet. |
+| `Azure.ContainerApp.MinReplicas` | Scale to zero on purpose; 2+ replicas is standing cost. |
+| `Azure.Log.Replication` | One log workspace for a learning platform; replication adds cost. |
+| `Azure.ContainerApp.PublicAccess` | No platform VNet yet; ingress is `internal` by default. Remove the suppression when the module gets VNet integration. |
+| `Azure.ContainerApp.RestrictIngress` | No IP restrictions until there is a platform network or Front Door. Same follow-up. |
+
+Run it locally (PowerShell 7, `Install-Module PSRule.Rules.Azure`, bicep on PATH):
+
+```powershell
+Assert-PSRule -InputPath out/main.bicep -Module PSRule.Rules.Azure -Baseline Azure.GA_2025_12 -Option ps-rule.yaml -Path .ps-rule/ -Outcome Fail,Error
+```
