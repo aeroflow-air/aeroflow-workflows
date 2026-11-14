@@ -103,9 +103,9 @@ permissions:
 jobs:
   label:
     if: github.event_name == 'pull_request' || github.event.issue.pull_request
-    uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@main
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/label-ai-assistance.yml@v0.5.0
     with:
-      workflows_ref: main   # keep in sync with the uses: pin above
+      workflows_ref: v0.5.0   # keep in sync with the uses: pin above
     permissions:
       contents: read
       pull-requests: write
