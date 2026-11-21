@@ -6,6 +6,8 @@ name: Self-test
 # the next tag.
 #
 # Check-run names (required on main): `lint` and `dotnet-ci / build-and-test`.
+# `dotnet-ci-with-feed` and `dotnet-ci-github-packages` also run here; they are
+# not required yet (add them when tagging v0.6.0 if you want them to gate main).
 # `workload-deploy / generate` also runs here; it is not required yet.
 # The workload schema check is a step in `lint`, not a separate workflow.
 
@@ -62,6 +64,28 @@ jobs:
       solution: tests/sample/Sample.sln
     permissions:
       contents: read
+      packages: read
+
+  # Same nuget.org-only sample, with the org feed enabled: proves the default
+  # path still restores when github-packages is true.
+  dotnet-ci-with-feed:
+    uses: ./.github/workflows/dotnet-ci.yml
+    with:
+      solution: tests/sample/Sample.sln
+      github-packages: true
+    permissions:
+      contents: read
+      packages: read
+
+  # Restores AeroFlow.ServiceDefaults 0.1.0 from GitHub Packages.
+  dotnet-ci-github-packages:
+    uses: ./.github/workflows/dotnet-ci.yml
+    with:
+      solution: tests/sample-github-packages/Sample.Packages.sln
+      github-packages: true
+    permissions:
+      contents: read
+      packages: read
 
   # Calls workload-deploy.yml against this repo's flight-status fixture, so the
   # generator, stand-in module and bicep build/lint are proven before a tag.
