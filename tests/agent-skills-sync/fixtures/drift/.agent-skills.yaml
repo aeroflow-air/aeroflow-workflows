@@ -1,0 +1,6 @@
+# Self-test fixture for sync-agent-skills.yml (not a real repo's pin).
+source: aeroflow-air/agent-skills
+version: v0.1.0
+skills: default
+exclude:
+  - aeroflow-new-service-checklist   # this "repo" replaces it with its own skill below

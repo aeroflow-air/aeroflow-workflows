@@ -7,10 +7,11 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 | Workflow | Purpose | Tag example |
 |----------|---------|-------------|
 | `validate-decisions.yml` | ADR shape, lifecycle, immutability | `@v1` (tag pending) |
-| `dotnet-ci.yml` | .NET restore → build → test (optional org GitHub Packages feed) | `@v0.5.0`; proposed `@v0.6.0` after this change is tagged |
+| `dotnet-ci.yml` | .NET restore → build → test (optional org GitHub Packages feed) | `@v0.6.0` (needs `packages: read`) |
 | `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
 | `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.1` |
+| `sync-agent-skills.yml` | ADR-0023: check `.claude/skills/aeroflow-*` against the pinned agent-skills release; bump PRs | proposed `@v0.7.0` |
 
 ## .NET CI
 
@@ -101,9 +102,69 @@ jobs:
       contents: read
 ```
 
+## Agent skills sync (ADR-0023)
+
+A repo pins a release of [agent-skills](https://github.com/aeroflow-air/agent-skills) in `.agent-skills.yaml` and keeps a copy in `.claude/skills/`, where Claude Code, Copilot and any agent reading the repo find it:
+
+```yaml
+# .agent-skills.yaml
+source: aeroflow-air/agent-skills   # optional, the default
+version: v0.1.0                     # release tag
+skills: default                     # default-set.txt of that release, or a list
+exclude: []                         # platform skills this repo replaces with its own
+```
+
+`sync-agent-skills.yml` manages only `.claude/skills/aeroflow-*`. A squad's own skill uses any other folder name and is never touched. To replace a platform skill, list it under `exclude` and add one with a different name.
+
+| Mode | When | Caller permissions | What it does |
+|------|------|--------------------|--------------|
+| `check` | `pull_request` | `contents: read` | Fails if a managed folder is missing, extra, excluded-but-present, or differs byte for byte from the pinned tag |
+| `bump` | `schedule`, `workflow_dispatch` | `contents: write`, `pull-requests: write` (or `contents: read` with an app token) | Finds the latest release, bumps `version:`, re-syncs, opens or updates one PR from `chore/agent-skills-sync`. Run it from the default branch |
+
+```yaml
+name: Agent skills
+
+on:
+  pull_request:
+  schedule: [{ cron: "23 6 * * 1" }]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/sync-agent-skills.yml@v0.7.0
+    with:
+      mode: check
+      workflows_ref: v0.7.0
+    permissions:
+      contents: read
+
+  bump:
+    if: github.event_name != 'pull_request'
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/sync-agent-skills.yml@v0.7.0
+    with:
+      mode: bump
+      workflows_ref: v0.7.0
+      # app-id: ${{ vars.AGENT_SKILLS_APP_ID }}        # optional, see below
+    # secrets:
+    #   app-private-key: ${{ secrets.AGENT_SKILLS_APP_KEY }}
+    permissions:
+      contents: write
+      pull-requests: write
+```
+
+**CI on the bump PR.** A PR opened with `GITHUB_TOKEN` does not trigger other workflows, so its required checks never run. Either close and reopen the PR (the PR body says so), or pass `app-id` and the `app-private-key` secret of a GitHub App installed on the repo with Contents and Pull requests read & write. The PR is then opened with a short-lived app token and CI runs normally. No org app exists for this yet.
+
+Locally: `python3 scripts/sync_agent_skills.py sync --source-dir <agent-skills checkout at the pinned tag>` from the repo root, then `check` to confirm.
+
+Inputs: `mode` and `workflows_ref` (required), `path` (default `.`), `fail-on-drift` (check, default `true`), `dry-run` (bump, default `false`), `app-id`. Outputs: `drift`, `changed`, `version`.
+
 ## Self-test
 
-`.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. The `lint` job lints all workflows here with actionlint and validates the workload schema. The `dotnet-ci` job calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Two further jobs prove the optional GitHub Packages feed: `dotnet-ci-with-feed` runs the same sample with `github-packages: true`, and `dotnet-ci-github-packages` restores `AeroFlow.ServiceDefaults` 0.1.0 from the org feed ([`tests/sample-github-packages/`](tests/sample-github-packages/README.md)). `lint` and `dotnet-ci / build-and-test` are required on `main`.
+`.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. The `lint` job lints all workflows here with actionlint and validates the workload schema. The `dotnet-ci` job calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Two further jobs prove the optional GitHub Packages feed: `dotnet-ci-with-feed` runs the same sample with `github-packages: true`, and `dotnet-ci-github-packages` restores `AeroFlow.ServiceDefaults` 0.1.0 from the org feed ([`tests/sample-github-packages/`](tests/sample-github-packages/README.md)). The `sync-agent-skills-*` jobs run `sync-agent-skills.yml` against agent-skills v0.1.0 and the fixtures in `tests/agent-skills-sync/fixtures/`. `sync-agent-skills assert` proves the clean fixture passes, the drift fixture is caught, and a bump dry run would re-sync it. `lint` and `dotnet-ci / build-and-test` are required on `main`.
 
 ## AI assistance labels (ADR-0012)
 

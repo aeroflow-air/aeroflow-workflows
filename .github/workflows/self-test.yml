@@ -9,6 +9,8 @@ name: Self-test
 # `dotnet-ci-with-feed` and `dotnet-ci-github-packages` also run here; they are
 # not required yet (add them when tagging v0.6.0 if you want them to gate main).
 # `workload-deploy / generate` also runs here; it is not required yet.
+# The `sync-agent-skills-*` jobs prove sync-agent-skills.yml (clean passes,
+# drift is caught, bump dry run re-syncs). Not required yet.
 # The workload schema check is a step in `lint`, not a separate workflow.
 
 on:
@@ -58,6 +60,10 @@ jobs:
       - name: Test C# workload generator (golden parity)
         run: tests/generator/run_csharp_golden.sh
 
+      # Same required check. Unit tests for the agent-skills sync script (ADR-0023).
+      - name: Test agent-skills sync script
+        run: python3 -m unittest discover -s tests/agent-skills-sync -v
+
   dotnet-ci:
     uses: ./.github/workflows/dotnet-ci.yml
     with:
@@ -106,3 +112,59 @@ jobs:
       manifest: tests/generator/manifests/svc-baggage-reclaim.yaml
     permissions:
       contents: read
+
+  # sync-agent-skills.yml against the real agent-skills v0.1.0 release and the
+  # fixtures in tests/agent-skills-sync/fixtures. Each fixture excludes one
+  # platform skill and carries a squad-owned skill the sync must ignore.
+  # Check mode with only contents: read proves the read-only caller path.
+  sync-agent-skills-clean:
+    uses: ./.github/workflows/sync-agent-skills.yml
+    with:
+      mode: check
+      workflows_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      path: tests/agent-skills-sync/fixtures/clean
+    permissions:
+      contents: read
+
+  # The drift fixture has an edited file, a missing skill and an excluded
+  # skill present. fail-on-drift: false reports instead of failing, so the
+  # assert job can prove drift was detected without a red run.
+  sync-agent-skills-drift:
+    uses: ./.github/workflows/sync-agent-skills.yml
+    with:
+      mode: check
+      workflows_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      path: tests/agent-skills-sync/fixtures/drift
+      fail-on-drift: false
+    permissions:
+      contents: read
+
+  # Bump mode, dry run: latest-release lookup and re-sync of the drift fixture,
+  # without pushing or opening a PR.
+  sync-agent-skills-bump-dry-run:
+    uses: ./.github/workflows/sync-agent-skills.yml
+    with:
+      mode: bump
+      workflows_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      path: tests/agent-skills-sync/fixtures/drift
+      dry-run: true
+    permissions:
+      contents: read
+
+  sync-agent-skills-assert:
+    name: sync-agent-skills assert
+    needs: [sync-agent-skills-clean, sync-agent-skills-drift, sync-agent-skills-bump-dry-run]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Clean passes, drift is caught, bump would re-sync
+        env:
+          CLEAN: ${{ needs.sync-agent-skills-clean.outputs.drift }}
+          DRIFT: ${{ needs.sync-agent-skills-drift.outputs.drift }}
+          CHANGED: ${{ needs.sync-agent-skills-bump-dry-run.outputs.changed }}
+          VERSION: ${{ needs.sync-agent-skills-clean.outputs.version }}
+        run: |
+          echo "clean drift=$CLEAN, drift fixture drift=$DRIFT, bump changed=$CHANGED, pinned=$VERSION"
+          [ "$CLEAN" = "false" ] || { echo "::error::clean fixture should be in sync"; exit 1; }
+          [ "$DRIFT" = "true" ] || { echo "::error::drift fixture should be reported as drift"; exit 1; }
+          [ "$CHANGED" = "true" ] || { echo "::error::bump dry run should re-sync the drift fixture"; exit 1; }

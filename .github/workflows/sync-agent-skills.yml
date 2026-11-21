@@ -1,0 +1,290 @@
+name: Sync agent skills
+
+# Reusable workflow (ADR-0023). Keeps a repo's pinned copy of
+# aeroflow-air/agent-skills in .claude/skills/ honest.
+#
+# The repo pins a release in .agent-skills.yaml:
+#
+#   source: aeroflow-air/agent-skills   # optional (default)
+#   version: v0.1.0                     # release tag
+#   skills: default                     # or a list of skill names
+#   exclude: []                         # platform skills this repo replaces
+#
+# Only .claude/skills/aeroflow-* folders are managed. Squad-owned skills
+# (any other folder name) are never read, changed or deleted.
+#
+# mode: check (pull requests). Fetches the pinned tag and fails if any
+#   managed folder differs from it. Caller grants `contents: read`.
+#
+# mode: bump (schedule / workflow_dispatch). Finds the latest agent-skills
+#   release, bumps `version:`, re-syncs the files, and opens or updates one
+#   PR from the branch `chore/agent-skills-sync`. Without an app token the
+#   caller grants `contents: write` and `pull-requests: write`; with an app
+#   token (below), `contents: read` is enough.
+#
+# PRs opened with GITHUB_TOKEN do not trigger other workflows, so the bump
+# PR gets no CI run and a required check would block it. Pass `app-id` and
+# the `app-private-key` secret of a GitHub App installed on the repo
+# (Contents and Pull requests: read & write) and the PR is created with an
+# app token, which does trigger CI. Without one, close and reopen the PR (or
+# push to its branch) to start CI.
+#
+# Caller example (check on PRs, bump weekly):
+#
+#   on:
+#     pull_request:
+#     schedule: [{ cron: "23 6 * * 1" }]
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     check:
+#       if: github.event_name == 'pull_request'
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/sync-agent-skills.yml@v0.7.0
+#       with:
+#         mode: check
+#         workflows_ref: v0.7.0
+#       permissions:
+#         contents: read
+#     bump:
+#       if: github.event_name != 'pull_request'
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/sync-agent-skills.yml@v0.7.0
+#       with:
+#         mode: bump
+#         workflows_ref: v0.7.0
+#       permissions:
+#         contents: write
+#         pull-requests: write
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "check (fail on drift) or bump (open/update a PR to the latest release)"
+        type: string
+        required: true
+      workflows_ref:
+        description: "Git ref of aeroflow-workflows to load scripts/sync_agent_skills.py from (match the uses: @pin)"
+        type: string
+        required: true
+      path:
+        description: "Directory in the caller repo that holds .agent-skills.yaml and .claude/skills"
+        type: string
+        required: false
+        default: "."
+      fail-on-drift:
+        description: "check mode: fail the job on drift. false only reports it (used by the self-test)"
+        type: boolean
+        required: false
+        default: true
+      dry-run:
+        description: "bump mode: compute and show the change, but do not push or open a PR"
+        type: boolean
+        required: false
+        default: false
+      app-id:
+        description: "Optional GitHub App id. With app-private-key, the bump PR is created with an app token so CI runs on it"
+        type: string
+        required: false
+        default: ""
+    secrets:
+      app-private-key:
+        description: "Private key of the GitHub App named by app-id"
+        required: false
+    outputs:
+      drift:
+        description: "check mode: 'true' if managed skills differ from the pin"
+        value: ${{ jobs.check.outputs.drift }}
+      changed:
+        description: "bump mode: 'true' if the pin or files needed changing"
+        value: ${{ jobs.bump.outputs.changed }}
+      version:
+        description: "check: the pinned tag; bump: the latest release tag"
+        value: ${{ jobs.check.outputs.version || jobs.bump.outputs.version }}
+
+# No workflow-level permissions on purpose: `check` asks for read only, and
+# `bump` inherits what the caller grants, so a check-only caller with
+# `contents: read` is not rejected at startup for a job it never runs.
+
+jobs:
+  check:
+    name: check
+    if: inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      drift: ${{ steps.check.outputs.drift }}
+      version: ${{ steps.pin.outputs.version }}
+    steps:
+      - name: Checkout caller
+        uses: actions/checkout@v4
+        with:
+          path: caller
+          persist-credentials: false
+
+      - name: Checkout aeroflow-workflows
+        uses: actions/checkout@v4
+        with:
+          repository: aeroflow-air/aeroflow-workflows
+          ref: ${{ inputs.workflows_ref }}
+          path: .aeroflow-workflows
+          persist-credentials: false
+
+      - name: Read pin
+        id: pin
+        env:
+          ROOT: caller/${{ inputs.path }}
+        run: python3 .aeroflow-workflows/scripts/sync_agent_skills.py read --config "$ROOT/.agent-skills.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned agent skills
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pin.outputs.source }}
+          ref: ${{ steps.pin.outputs.version }}
+          path: .agent-skills
+          persist-credentials: false
+
+      - name: Check for drift
+        id: check
+        env:
+          ROOT: caller/${{ inputs.path }}
+          FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
+        run: |
+          set +e
+          python3 .aeroflow-workflows/scripts/sync_agent_skills.py check \
+            --config "$ROOT/.agent-skills.yaml" --skills-dir "$ROOT/.claude/skills" --source-dir .agent-skills
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then exit 2; fi
+          if [ "$rc" -eq 1 ]; then
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            msg="Agent skills drift from the pin. Run scripts/sync_agent_skills.py sync, or wait for the bump PR. Edit squad skills under a name without the aeroflow- prefix."
+            if [ "$FAIL_ON_DRIFT" = "true" ]; then echo "::error::$msg"; exit 1; fi
+            echo "::warning::$msg"
+          else
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  bump:
+    name: bump
+    if: inputs.mode == 'bump'
+    runs-on: ubuntu-latest
+    # No permissions block: inherits the caller's grant (see header).
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      version: ${{ steps.latest.outputs.version }}
+    env:
+      BRANCH: chore/agent-skills-sync
+    steps:
+      - name: Repository name
+        id: repo
+        run: echo "name=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create app token (optional)
+        id: app
+        if: inputs.app-id != '' && !inputs.dry-run
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.repo.outputs.name }}
+
+      - name: Checkout caller
+        uses: actions/checkout@v4
+        with:
+          path: caller
+          token: ${{ steps.app.outputs.token || github.token }}
+          persist-credentials: ${{ !inputs.dry-run }}
+
+      - name: Checkout aeroflow-workflows
+        uses: actions/checkout@v4
+        with:
+          repository: aeroflow-air/aeroflow-workflows
+          ref: ${{ inputs.workflows_ref }}
+          path: .aeroflow-workflows
+          persist-credentials: false
+
+      - name: Read pin
+        id: pin
+        env:
+          ROOT: caller/${{ inputs.path }}
+        run: python3 .aeroflow-workflows/scripts/sync_agent_skills.py read --config "$ROOT/.agent-skills.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Find latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ steps.pin.outputs.source }}
+          PINNED: ${{ steps.pin.outputs.version }}
+        run: |
+          latest=$(gh api "repos/$SOURCE/releases/latest" --jq .tag_name)
+          if ! [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::latest release of $SOURCE is '$latest', not vMAJOR.MINOR.PATCH"; exit 1
+          fi
+          echo "Pinned $PINNED, latest $latest"
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout latest agent skills
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pin.outputs.source }}
+          ref: ${{ steps.latest.outputs.version }}
+          path: .agent-skills
+          persist-credentials: false
+
+      - name: Sync
+        env:
+          ROOT: caller/${{ inputs.path }}
+          LATEST: ${{ steps.latest.outputs.version }}
+        run: |
+          python3 .aeroflow-workflows/scripts/sync_agent_skills.py sync \
+            --config "$ROOT/.agent-skills.yaml" --skills-dir "$ROOT/.claude/skills" \
+            --source-dir .agent-skills --set-version "$LATEST"
+
+      - name: Detect changes
+        id: diff
+        working-directory: caller
+        env:
+          REL: ${{ inputs.path }}
+        run: |
+          git add -A -- "$REL/.agent-skills.yaml" "$REL/.claude/skills"
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already on the latest release and in sync."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --cached --stat
+          fi
+
+      - name: Open or update the bump PR
+        if: steps.diff.outputs.changed == 'true' && !inputs.dry-run
+        working-directory: caller
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          PINNED: ${{ steps.pin.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.version }}
+          SOURCE: ${{ steps.pin.outputs.source }}
+          USED_APP: ${{ steps.app.outputs.token != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          base=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          if [ "$(git rev-parse --abbrev-ref HEAD)" != "$base" ]; then
+            echo "::error::run bump mode from the default branch ($base)"; exit 1
+          fi
+          if [ "$PINNED" = "$LATEST" ]; then title="Re-sync agent skills ($LATEST)"; else title="Bump agent skills $PINNED → $LATEST"; fi
+          git switch -C "$BRANCH"
+          git commit -q -m "$title" -m "Synced .claude/skills/aeroflow-* from $SOURCE@$LATEST (ADR-0023)."
+          git push --force origin "$BRANCH"
+          body="Automated by \`sync-agent-skills.yml\` (ADR-0023). Pinned \`$PINNED\`, latest release \`$LATEST\`: [release notes](https://github.com/$SOURCE/releases/tag/$LATEST). Only \`.claude/skills/aeroflow-*\` and \`.agent-skills.yaml\` change. Squad-owned skills are untouched."
+          if [ "$USED_APP" != "true" ]; then
+            body="$body"$'\n\n'"Opened with GITHUB_TOKEN, so CI has not run on this PR. Close and reopen it to start CI."
+          fi
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body "$body"
+          else
+            gh pr create --base "$base" --head "$BRANCH" --title "$title" --body "$body"
+          fi
