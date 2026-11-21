@@ -2,7 +2,11 @@
 
 Release notes for tags before this file lived in [GitHub Releases](https://github.com/aeroflow-air/aeroflow-workflows/releases).
 
-## Unreleased (proposed v0.7.0)
+## Unreleased
+
+Nothing yet.
+
+## v0.7.0
 
 - `sync-agent-skills.yml` (ADR-0023): reusable workflow that keeps a repo's pinned copy of `aeroflow-air/agent-skills` in `.claude/skills/` honest. `mode: check` (pull requests, `contents: read`) fails when any `.claude/skills/aeroflow-*` folder differs from the release pinned in `.agent-skills.yaml`, minus its `exclude` list. `mode: bump` (schedule or dispatch) finds the latest release, bumps `version:`, re-syncs and opens or updates one PR from `chore/agent-skills-sync` (`contents: write`, `pull-requests: write`, or an optional GitHub App token via `app-id` + `app-private-key` so CI runs on the PR). Squad-owned skills (any other folder name) are never touched.
 - `scripts/sync_agent_skills.py`: the stdlib check/sync script behind it, with unit tests in `tests/agent-skills-sync/`.
