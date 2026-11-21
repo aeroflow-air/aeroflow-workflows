@@ -11,7 +11,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 | `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
 | `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.1` |
-| `sync-agent-skills.yml` | ADR-0023: check `.claude/skills/aeroflow-*` against the pinned agent-skills release; bump PRs | proposed `@v0.7.0` |
+| `sync-agent-skills.yml` | ADR-0023: check `.claude/skills/aeroflow-*` against the pinned agent-skills release; bump PRs | `@v0.7.0` |
 
 ## .NET CI
 
