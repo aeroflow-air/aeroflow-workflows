@@ -4,11 +4,13 @@ name: .NET CI
 #
 #   jobs:
 #     build-and-test:
-#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/dotnet-ci.yml@v0.1.0
+#       uses: aeroflow-air/aeroflow-workflows/.github/workflows/dotnet-ci.yml@v0.6.0
 #       with:
 #         solution: Your.Service.sln
+#         # github-packages: true   # opt in to the org GitHub Packages feed
 #       permissions:
 #         contents: read
+#         # packages: read          # required when github-packages is true
 #
 # Thin restore → build → test. No scanner theatre.
 # validate-decisions.yml is separate and untouched.
@@ -26,6 +28,16 @@ on:
         type: string
         required: false
         default: ""
+      github-packages:
+        description: >
+          If true, add the org GitHub Packages NuGet feed
+          (https://nuget.pkg.github.com/aeroflow-air/index.json) and
+          authenticate with GITHUB_TOKEN via NUGET_AUTH_TOKEN. The calling
+          job must set permissions.packages: read. Default is false, so
+          callers that only use nuget.org need no change.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -35,14 +47,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup .NET
+        if: ${{ !inputs.github-packages }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Setup .NET (with GitHub Packages)
+        if: ${{ inputs.github-packages }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+          source-url: https://nuget.pkg.github.com/aeroflow-air/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore
         run: |

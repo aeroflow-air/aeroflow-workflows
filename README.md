@@ -7,7 +7,7 @@ Reusable GitHub Actions workflows for the aeroflow-air org. Callers pin by **tag
 | Workflow | Purpose | Tag example |
 |----------|---------|-------------|
 | `validate-decisions.yml` | ADR shape, lifecycle, immutability | `@v1` (tag pending) |
-| `dotnet-ci.yml` | .NET restore → build → test | `@v0.1.0` |
+| `dotnet-ci.yml` | .NET restore → build → test (optional org GitHub Packages feed) | `@v0.5.0`; proposed `@v0.6.0` after this change is tagged |
 | `workload-deploy.yml` | ADR-0009 shared deploy: validate `workload.yaml`, generate Bicep, `bicep build` + `lint` (no Azure yet) | pin a tag after merge |
 | `label-ai-assistance.yml` | ADR-0012 AI PR labels (Cursor commit join + Copilot agent + fallbacks) | pin same ref as `workflows_ref` |
 | `ai-code-review.yml` | Advisory Claude PR review tuned to AeroFlow standards | `@v0.3.1` |
@@ -37,6 +37,26 @@ jobs:
 ```
 
 Green means: restore, Release build, and tests all succeed. No format/coverage/CodeQL gates here — keep those opt-in and justified.
+
+### GitHub Packages (optional, v0.6.0)
+
+To restore packages from the org feed (`https://nuget.pkg.github.com/aeroflow-air/index.json`), such as `AeroFlow.ServiceDefaults`, set `github-packages: true` and grant `packages: read` on the calling job. Authentication uses `GITHUB_TOKEN` (`NUGET_AUTH_TOKEN`). Do not put a PAT in the workflow.
+
+Leave the input unset or `false` if the repo only uses nuget.org. Existing callers that stay on `@v0.5.0`, or that pin `@v0.6.0` without the input, do not need `packages: read` and do not change behaviour.
+
+```yaml
+jobs:
+  build-and-test:
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/dotnet-ci.yml@v0.6.0
+    with:
+      solution: Your.Service.sln
+      github-packages: true
+    permissions:
+      contents: read
+      packages: read
+```
+
+`v0.6.0` is the proposed next tag for this change; do not pin it until the tag exists. Local `dotnet restore` still needs a user-level PAT with `read:packages` — see [lib-service-defaults](https://github.com/aeroflow-air/lib-service-defaults#consume). This workflow does not create that token.
 
 ## Decision validation
 
@@ -70,7 +90,7 @@ jobs:
 
 ## Self-test
 
-`.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. The `lint` job lints all workflows here with actionlint and validates the workload schema. The `dotnet-ci` job calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Both checks are required on `main`, so a change to a reusable workflow is proven here before it is tagged.
+`.github/workflows/self-test.yml` runs on every PR and on pushes to `main`. The `lint` job lints all workflows here with actionlint and validates the workload schema. The `dotnet-ci` job calls `dotnet-ci.yml` locally against the tiny solution in [`tests/sample/`](tests/sample/README.md) (`dotnet-ci / build-and-test`). Two further jobs prove the optional GitHub Packages feed: `dotnet-ci-with-feed` runs the same sample with `github-packages: true`, and `dotnet-ci-github-packages` restores `AeroFlow.ServiceDefaults` 0.1.0 from the org feed ([`tests/sample-github-packages/`](tests/sample-github-packages/README.md)). `lint` and `dotnet-ci / build-and-test` are required on `main`.
 
 ## AI assistance labels (ADR-0012)
 
