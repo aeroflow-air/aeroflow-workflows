@@ -42,7 +42,7 @@ Green means: restore, Release build, and tests all succeed. No format/coverage/C
 
 To restore packages from the org feed (`https://nuget.pkg.github.com/aeroflow-air/index.json`), such as `AeroFlow.ServiceDefaults`, set `github-packages: true` and grant `packages: read` on the calling job. Authentication uses `GITHUB_TOKEN` (`NUGET_AUTH_TOKEN`). Do not put a PAT in the workflow.
 
-Leave the input unset or `false` if the repo only uses nuget.org. Existing callers that stay on `@v0.5.0`, or that pin `@v0.6.0` without the input, do not need `packages: read` and do not change behaviour.
+Leave the input unset or `false` if the repo only uses nuget.org. **When bumping the pin to `@v0.6.0`, add `packages: read` on the calling job even if you do not enable the feed.** GitHub rejects the reusable workflow at startup if the caller only grants `contents: read`. Callers that stay on `@v0.5.0` need no change.
 
 ```yaml
 jobs:
@@ -51,6 +51,19 @@ jobs:
     with:
       solution: Your.Service.sln
       github-packages: true
+    permissions:
+      contents: read
+      packages: read
+```
+
+Upgrade without using the feed (one-line permissions change only):
+
+```yaml
+jobs:
+  build-and-test:
+    uses: aeroflow-air/aeroflow-workflows/.github/workflows/dotnet-ci.yml@v0.6.0
+    with:
+      solution: Your.Service.sln
     permissions:
       contents: read
       packages: read

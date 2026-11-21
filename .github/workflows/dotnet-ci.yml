@@ -39,11 +39,10 @@ on:
         required: false
         default: false
 
-# packages: read is allowed so callers can opt in with github-packages: true.
-# Job permissions are inherited and intersected with the caller: a caller that
-# only grants contents: read still works (packages is none; nuget.org restore
-# is unchanged). A caller that sets github-packages: true must also grant
-# packages: read, or restore from the feed will fail.
+# packages: read is requested so github-packages: true can authenticate to
+# the org feed. GitHub requires the *caller* to grant packages: read as well,
+# even when the input is false, or the workflow fails at startup. Callers
+# that stay on v0.5.0 are unchanged.
 permissions:
   contents: read
   packages: read
@@ -51,6 +50,9 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4

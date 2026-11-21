@@ -64,6 +64,7 @@ jobs:
       solution: tests/sample/Sample.sln
     permissions:
       contents: read
+      packages: read
 
   # Same nuget.org-only sample, with the org feed enabled: proves the default
   # path still restores when github-packages is true.
