@@ -143,8 +143,10 @@ jobs:
             4. Security: secrets in code or logs, unvalidated input, over-broad workflow
                permissions, unpinned actions or reusable workflows (callers must pin a tag).
             5. .NET 8 practice: async/await correctness (no .Result/.Wait), CancellationToken
-               flow, disposal, nullable warnings, structured logging, minimal API conventions.
-            6. Domain conventions: follow the repo's CLAUDE.md and ADR-0004 functional style
+               flow, disposal, nullable warnings, structured logging ([LoggerMessage]). The HTTP edge is
+               [ApiController] controllers in Controllers/, not minimal APIs; errors leave as ProblemDetails.
+            6. Domain conventions: follow the repo's AGENTS.md (CLAUDE.md just imports it; skills are in
+               .claude/skills/) and ADR-0004 functional style
                (https://github.com/aeroflow-air/platform-handbook/blob/main/docs/standards/coding-standards.md):
                pure static domain functions composed with Bind/Map/Match, immutable records,
                Result<T> with typed errors instead of exceptions, Option<T> instead of null,

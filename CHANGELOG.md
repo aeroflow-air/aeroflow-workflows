@@ -4,7 +4,7 @@ Release notes for tags before this file lived in [GitHub Releases](https://githu
 
 ## Unreleased
 
-Nothing yet.
+- `ai-code-review.yml`: the review prompt points at the repo's `AGENTS.md` (ADR-0023; `CLAUDE.md` now only imports it) instead of `CLAUDE.md`, and replaces "minimal API conventions" with the real convention: `[ApiController]` controllers in `Controllers/`, errors as ProblemDetails. README updated to match. Callers pick this up when they move to the next tag.
 
 ## v0.7.0
 
