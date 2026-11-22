@@ -215,7 +215,7 @@ No secrets required. Permissions on the job: `contents: read`, `pull-requests: w
 using a prompt tuned to AeroFlow standards (event contracts, `docs/service.md`,
 tests, security, .NET 8, and ADR-0004 domain conventions from the
 [coding standards](https://github.com/aeroflow-air/platform-handbook/blob/main/docs/standards/coding-standards.md)
-and the repo's `CLAUDE.md`, which the action loads automatically). It posts inline comments and one sticky summary
+and the repo's `AGENTS.md`, which its `CLAUDE.md` imports and the action loads automatically). It posts inline comments and one sticky summary
 comment; it never approves, blocks or pushes.
 
 ```yaml
@@ -240,8 +240,8 @@ review step, shows as a warning rather than failing the job, since the review is
 skipped because GitHub does not pass secrets to them. Needs the Claude GitHub
 app installed on the org and the `ANTHROPIC_API_KEY` org secret visible to the
 calling repo. Inputs: `max-turns`, `max-changed-lines`, `skip-label`, `model`,
-`extra-instructions`. Not a required check. Put repo conventions in a
-`CLAUDE.md` at the repo root rather than in `extra-instructions`.
+`extra-instructions`. Not a required check. Put repo conventions in
+`AGENTS.md` at the repo root (with `CLAUDE.md` containing `@AGENTS.md`, ADR-0023) rather than in `extra-instructions`.
 
 ## PSRule for Azure (workload-deploy.yml)
 
