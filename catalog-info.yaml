@@ -1,0 +1,22 @@
+# Backstage catalogue entry for this repo (ADR-0024, platform-handbook#123).
+# Discovered by the aeroflow-air Backstage instance (aeroflow-air/backstage).
+# Domains, Systems and the event-bus Resource live in platform-handbook/catalog/.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: aeroflow-workflows
+  title: AeroFlow reusable workflows
+  description: >-
+    Reusable GitHub Actions workflows pinned by tag: .NET CI, decision-record
+    validation, workload.yaml generation (ADR-0009), AI labelling, advisory AI
+    review and agent-skills sync. Also hosts the workload schema and generator.
+  annotations:
+    github.com/project-slug: aeroflow-air/aeroflow-workflows
+  tags:
+    - github-actions
+    - ci
+spec:
+  type: library
+  lifecycle: experimental
+  owner: group:platform
+  system: developer-platform
